@@ -10,7 +10,4 @@ on:
 jobs:
   vercel-deploy-action:
     uses: happy-horizon/test/.github/workflows/vercel-deploy-action.yml@production
-    with:
-      VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
-      VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
     secrets: inherit
