@@ -7,9 +7,6 @@ on:
       - 'production'
       - 'staging'
       - 'upgrade'
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
 jobs:
   promote:
     runs-on: ubuntu-latest
@@ -20,6 +17,7 @@ jobs:
         run: npm install -g vercel && vercel promote $VERCEL_DEPLOYMENT_URL --yes --token=$VERCEL_TOKEN --scope=experius
         env:
           VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
   generate-csp-headers:
     runs-on: ubuntu-latest
     needs: promote
@@ -39,3 +37,26 @@ jobs:
         env:
           VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  full-purge-fastly:
+    runs-on: ubuntu-latest
+    needs: [promote, generate-csp-headers]
+    if: ${{ always() && (needs.generate-csp-headers.result == 'success' || needs.generate-csp-headers.result == 'skipped') }}
+    steps:
+      - name: Full Purge Fastly
+        run: |
+          npm install -g vercel
+          vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
+          source .env.vercel
+          url="https://trigger.happyhorizon.dev/fastly-flush-cache?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}"
+          response=$(curl -sw "%{http_code}" $url)
+          status_code="${response:${#response}-3}"
+          body=""
+          if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
+          if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
+        env:
+          VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
+          VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
