@@ -5,7 +5,7 @@ jobs:
   promote:
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'production' }}
-    environment: ${{ inputs.VERCEL_ENV }}
+    environment: ${{ github.ref_name }}
     steps:
       - name: Promote to Production
         run: npm install -g vercel && vercel promote $VERCEL_DEPLOYMENT_URL --yes --token=$VERCEL_TOKEN --scope=experius
