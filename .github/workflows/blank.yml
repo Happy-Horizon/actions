@@ -8,11 +8,8 @@ on:
       - 'staging'
       - 'upgrade'
     env:
-      VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
-      VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
 jobs:
   promote:
     runs-on: ubuntu-latest
@@ -21,6 +18,8 @@ jobs:
     steps:
       - name: Promote to Production
         run: npm install -g vercel && vercel promote $VERCEL_DEPLOYMENT_URL --yes --token=$VERCEL_TOKEN --scope=experius
+        env:
+          VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
   generate-csp-headers:
     runs-on: ubuntu-latest
     needs: promote
@@ -37,3 +36,6 @@ jobs:
           body=""
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
           if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
+        env:
+          VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
+          VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
