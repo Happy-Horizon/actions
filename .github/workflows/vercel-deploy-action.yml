@@ -1,13 +1,6 @@
 name: Vercel Deploy Action
 on:
   workflow_call:
-    inputs:
-      VERCEL_PROJECT_ID:
-        required: true
-        type: string
-      VERCEL_ENV:
-        required: true
-        type: string
 jobs:
   promote:
     runs-on: ubuntu-latest
@@ -36,8 +29,8 @@ jobs:
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
           if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
         env:
-          VERCEL_ENV: ${{ inputs.VERCEL_ENV }}
-          VERCEL_PROJECT_ID: ${{ inputs.VERCEL_PROJECT_ID }}
+          VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
+          VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   full-purge-fastly:
@@ -57,7 +50,7 @@ jobs:
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
           if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
         env:
-          VERCEL_ENV: ${{ inputs.VERCEL_ENV }}
-          VERCEL_PROJECT_ID: ${{ inputs.VERCEL_PROJECT_ID }}
+          VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
+          VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
