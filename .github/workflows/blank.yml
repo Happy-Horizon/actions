@@ -1,4 +1,4 @@
-name: Vercel Webhook Trigger Production
+name: Vercel Webhook Trigger
 on:
   repository_dispatch:
     types:
@@ -8,7 +8,7 @@ on:
       - 'staging'
       - 'upgrade'
     env:
-      VERCEL_ENV: ${{ github.ref_name == 'production' && 'production'|| github.ref_name == 'upgrade' && 'upgrade' || 'preview' }}
+      VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
