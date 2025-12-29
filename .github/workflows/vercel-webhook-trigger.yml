@@ -9,5 +9,5 @@ on:
       - 'upgrade'
 jobs:
   vercel:
-    uses: happy-horizon/action/.github/workflows/horizon-storefront/vercel-deploy-action.yml@production
+    uses: happy-horizon/action/.github/workflows/horizon-storefront-vercel-deployment-success.yml@production
     secrets: inherit
