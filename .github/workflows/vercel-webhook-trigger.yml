@@ -9,7 +9,7 @@ on:
       - 'upgrade'
 jobs:
   vercel-deploy-action:
-    uses: happy-horizon/test/.github/workflows/vercel-deploy-action@production
+    uses: happy-horizon/test/.github/workflows/vercel-deploy-action.yml@production
     with:
       VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
       VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
