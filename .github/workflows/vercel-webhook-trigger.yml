@@ -1,0 +1,17 @@
+name: Vercel Webhook Trigger
+on:
+  repository_dispatch:
+    types:
+      - 'vercel.deployment.success'
+    branches:
+      - 'production'
+      - 'staging'
+      - 'upgrade'
+jobs:
+  vercel-deploy-action:
+    uses: happy-horizon/test/.github/workflows/vercel-deploy-action@production
+    with:
+      VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
+      VERCEL_ENV: ${{ github.ref_name == 'production' && 'production' || 'preview' }}
+      VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
+    secrets: inherit
