@@ -8,6 +8,6 @@ on:
       - 'staging'
       - 'upgrade'
 jobs:
-  vercel-deploy-action:
-    uses: happy-horizon/test/.github/workflows/vercel-deploy-action.yml@production
+  vercel:
+    uses: happy-horizon/test/.github/workflows/horizon-storefront/vercel-deploy-action.yml@production
     secrets: inherit
