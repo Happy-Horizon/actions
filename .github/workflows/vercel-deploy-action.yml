@@ -4,7 +4,7 @@ on:
 jobs:
   promote:
     runs-on: ubuntu-latest
-    if: ${{ inputs.VERCEL_ENV == 'production' }}
+    if: ${{ github.ref_name == 'production' }}
     environment: ${{ inputs.VERCEL_ENV }}
     steps:
       - name: Promote to Production
