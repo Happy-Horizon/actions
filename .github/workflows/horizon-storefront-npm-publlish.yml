@@ -1,0 +1,28 @@
+name: Publish Package
+on:
+  workflow_call:
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.happyhorizon.dev/
+      - run: npm version $TAG --no-git-tag-version
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "17051994+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          git commit -m "[FEATURE] Publish ${TAG} version [skip ci]"
+          git push
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.npm_token}}
