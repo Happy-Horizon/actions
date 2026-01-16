@@ -58,7 +58,11 @@ jobs:
     runs-on: ubuntu-latest
     name: New Relic
     if: ${{ github.ref_name == 'production' }}
+    needs: [full-purge-fastly]
     steps:
+      - name: Get current date
+        id: date
+        run: echo "::set-output name=date::$(date +'%Y-%m-%d %H:%M')"
       - name: New Relic Application Deployment Marker
         uses: newrelic/deployment-marker-action@v2.6.2
         with:
@@ -66,3 +70,4 @@ jobs:
           region: "US"
           guid: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
           user: "${{ github.actor }}"
+          version: "${{ steps.date.outputs.date }}"
