@@ -54,3 +54,15 @@ jobs:
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  newrelic:
+    runs-on: ubuntu-latest
+    name: New Relic
+    if: ${{ github.ref_name == 'production' }}
+    steps:
+      - name: New Relic Application Deployment Marker
+        uses: newrelic/deployment-marker-action@v2.6.2
+        with:
+          apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
+          region: "US"
+          guid: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
+          user: "${{ github.actor }}"
