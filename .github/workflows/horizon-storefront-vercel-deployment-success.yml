@@ -20,53 +20,10 @@ jobs:
       - name: Generate CSP Headers
         run: |
           npm install -g vercel
-          requested_env="${VERCEL_ENV}"
-          resolved_env="${requested_env}"
-          fallback_used=false
-          if ! vercel env pull .env.vercel --yes --environment="${requested_env}" --token="$VERCEL_TOKEN"; then
-            resolved_env="preview"
-            fallback_used=true
-            vercel env pull .env.vercel --yes --environment=preview --token="$VERCEL_TOKEN"
-          fi
+          vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
           source .env.vercel
-
-          require_var() {
-            local var_name="$1"
-            local var_value="${!var_name:-}"
-            if [ -z "$var_value" ]; then
-              echo "Missing required env var: ${var_name}"
-              exit 1
-            fi
-          }
-
-          report_var_presence() {
-            local var_name="$1"
-            local var_value="${!var_name:-}"
-            if [ -n "$var_value" ]; then
-              echo "${var_name}: set (len=${#var_value})"
-            else
-              echo "${var_name}: missing"
-            fi
-          }
-
-          # Temporary debug block - remove after env/trigger debugging is complete.
-          echo "Debug context: VERCEL_ENV requested=${requested_env} resolved=${resolved_env} fallback_used=${fallback_used}"
-          report_var_presence "VERCEL_PROJECT_ID"
-          report_var_presence "VERCEL_ORG_ID"
-          report_var_presence "FASTLY_SERVICE_ID"
-          report_var_presence "FASTLY_API_KEY"
-          report_var_presence "SANSEC_ID"
-          report_var_presence "CSP_STRICT"
-
-          require_var "FASTLY_SERVICE_ID"
-          require_var "FASTLY_API_KEY"
-          require_var "SANSEC_ID"
-          require_var "CSP_STRICT"
-
           url="https://trigger.happyhorizon.dev/csp_manage_fastly_header?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}&SANSEC_ID=${SANSEC_ID}&CSP_STRICT=${CSP_STRICT}"
-          redacted_url="https://trigger.happyhorizon.dev/csp_manage_fastly_header?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=***&SANSEC_ID=***&CSP_STRICT=${CSP_STRICT}"
-          echo "Debug context: redacted trigger URL ${redacted_url}"
-          response=$(curl -sw "%{http_code}" "$url")
+          response=$(curl -sw "%{http_code}" $url)
           status_code="${response:${#response}-3}"
           body=""
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
@@ -78,55 +35,16 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   full-purge-fastly:
     runs-on: ubuntu-latest
-    needs: [promote]
-    if: ${{ (needs.promote.result == 'success' || needs.promote.result == 'skipped') }}
+    needs: [promote, generate-csp-headers]
+    if: ${{ always() && (needs.promote.result == 'success' || needs.promote.result == 'skipped') }}
     steps:
       - name: Full Purge Fastly
         run: |
           npm install -g vercel
-          requested_env="${VERCEL_ENV}"
-          resolved_env="${requested_env}"
-          fallback_used=false
-          if ! vercel env pull .env.vercel --yes --environment="${requested_env}" --token="$VERCEL_TOKEN"; then
-            resolved_env="preview"
-            fallback_used=true
-            vercel env pull .env.vercel --yes --environment=preview --token="$VERCEL_TOKEN"
-          fi
+          vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
           source .env.vercel
-
-          require_var() {
-            local var_name="$1"
-            local var_value="${!var_name:-}"
-            if [ -z "$var_value" ]; then
-              echo "Missing required env var: ${var_name}"
-              exit 1
-            fi
-          }
-
-          report_var_presence() {
-            local var_name="$1"
-            local var_value="${!var_name:-}"
-            if [ -n "$var_value" ]; then
-              echo "${var_name}: set (len=${#var_value})"
-            else
-              echo "${var_name}: missing"
-            fi
-          }
-
-          # Temporary debug block - remove after env/trigger debugging is complete.
-          echo "Debug context: VERCEL_ENV requested=${requested_env} resolved=${resolved_env} fallback_used=${fallback_used}"
-          report_var_presence "VERCEL_PROJECT_ID"
-          report_var_presence "VERCEL_ORG_ID"
-          report_var_presence "FASTLY_SERVICE_ID"
-          report_var_presence "FASTLY_API_KEY"
-
-          require_var "FASTLY_SERVICE_ID"
-          require_var "FASTLY_API_KEY"
-
           url="https://trigger.happyhorizon.dev/fastly-flush-cache?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}"
-          redacted_url="https://trigger.happyhorizon.dev/fastly-flush-cache?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=***"
-          echo "Debug context: redacted trigger URL ${redacted_url}"
-          response=$(curl -sw "%{http_code}" "$url")
+          response=$(curl -sw "%{http_code}" $url)
           status_code="${response:${#response}-3}"
           body=""
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
