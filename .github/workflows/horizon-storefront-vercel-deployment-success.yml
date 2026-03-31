@@ -36,7 +36,7 @@ jobs:
   full-purge-fastly:
     runs-on: ubuntu-latest
     needs: [promote, generate-csp-headers]
-    if: ${{ always() && (needs.generate-csp-headers.result == 'success' || needs.generate-csp-headers.result == 'skipped') }}
+    if: ${{ (needs.promote.result == 'success' || needs.promote.result == 'skipped') && needs.generate-csp-headers.result == 'success' }}
     steps:
       - name: Full Purge Fastly
         run: |
@@ -68,6 +68,6 @@ jobs:
         with:
           apiKey: ${{ secrets.NEW_RELIC_API_KEY }}
           region: "US"
-          guid: ${{ secrets.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
+          guid: ${{ vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
           user: "${{ github.actor }}"
           version: "${{ steps.date.outputs.date }}"
