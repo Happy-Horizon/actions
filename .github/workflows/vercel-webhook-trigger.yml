@@ -1,14 +1,16 @@
 name: Vercel Webhook Trigger
-run-name: "${{ github.event.action }} (${{ github.event.client_payload.target || 'unknown-target' }})"
+run-name: "webhook trigger (${{ github.event.client_payload.environment || github.event.client_payload.target || 'unknown-environment' }}${{ github.event.client_payload.git.ref && format(' - {0}', github.event.client_payload.git.ref) || '' }})"
 on:
   repository_dispatch:
     types:
       - 'vercel.deployment.success'
-    branches:
-      - 'production'
-      - 'staging'
-      - 'upgrade'
 jobs:
   vercel:
+    if: >-
+      ${{
+        contains(fromJson('["production","staging","upgrade"]'), github.event.client_payload.environment) ||
+        contains(fromJson('["production","staging","upgrade"]'), github.event.client_payload.target) ||
+        contains(fromJson('["production","staging","upgrade","refs/heads/production","refs/heads/staging","refs/heads/upgrade"]'), github.event.client_payload.git.ref)
+      }}
     uses: happy-horizon/actions/.github/workflows/horizon-storefront-vercel-deployment-success.yml@production
     secrets: inherit
