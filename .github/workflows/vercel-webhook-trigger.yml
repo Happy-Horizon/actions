@@ -1,5 +1,5 @@
 name: Vercel Webhook Trigger
-run-name: "webhook trigger (${{ github.event.client_payload.environment || github.event.client_payload.target || 'unknown-environment' }}${{ github.event.client_payload.git.ref && format(' - {0}', github.event.client_payload.git.ref) || '' }})"
+run-name: "webhook trigger - ${{ github.event.client_payload.git.ref || 'unknown-branch' }} (${{ github.event.client_payload.environment || github.event.client_payload.target || 'unknown-environment' }})"
 on:
   repository_dispatch:
     types:
