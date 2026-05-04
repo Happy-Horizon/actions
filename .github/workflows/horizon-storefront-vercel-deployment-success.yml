@@ -81,7 +81,7 @@ jobs:
   newrelic:
     runs-on: ubuntu-latest
     name: New Relic
-    if: ${{ needs.resolve-context.outputs.resolved_env == 'production' }}
+    if: ${{ needs.resolve-context.outputs.resolved_env == 'production' && vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID != '' }}
     needs: [resolve-context, full-purge-fastly]
     steps:
       - name: Get current date
