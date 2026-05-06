@@ -23,6 +23,14 @@ jobs:
             *) resolved_env="${PAYLOAD_ENV:-preview}" ;;
           esac
           echo "resolved_env=${resolved_env}" >> "$GITHUB_OUTPUT"
+      - name: Debug new relic gate
+        shell: bash
+        env:
+          RESOLVED_ENV: ${{ steps.resolve.outputs.resolved_env }}
+          GUID: ${{ vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
+        run: |
+          echo "resolved_env=${RESOLVED_ENV}"
+          echo "guid=${GUID}"
 
   promote:
     runs-on: ubuntu-latest
