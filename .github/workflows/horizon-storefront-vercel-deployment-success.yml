@@ -164,7 +164,7 @@ jobs:
     steps:
       - name: Get current date
         id: date
-        run: echo "::set-output name=date::$(date +'%Y-%m-%d %H:%M')"
+        run: echo "date=$(date +'%Y-%m-%d %H:%M')" >> "$GITHUB_OUTPUT"
       - name: New Relic Application Deployment Marker
         uses: newrelic/deployment-marker-action@v2.6.2
         with:
@@ -172,4 +172,4 @@ jobs:
           region: "US"
           guid: ${{ vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID }}
           user: "${{ github.actor }}"
-          version: "${{ steps.date.outputs.date }}"
+          version: "Vercel Deploy - ${{ steps.date.outputs.date }}"
