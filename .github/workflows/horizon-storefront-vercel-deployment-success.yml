@@ -1,6 +1,8 @@
 name: Vercel Deploy Action
 on:
   workflow_call:
+env:
+  VERCEL_VERSION: "53"
 jobs:
   resolve-context:
     runs-on: ubuntu-latest
@@ -24,24 +26,90 @@ jobs:
 
   promote:
     runs-on: ubuntu-latest
-    needs: resolve-context
+    needs: [resolve-context]
     if: ${{ needs.resolve-context.outputs.resolved_env == 'production' }}
     environment: production
     steps:
+      - name: Cache Vercel CLI
+        id: vercel-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            /usr/local/lib/node_modules/vercel
+            /usr/local/bin/vercel
+          key: vercel-cli-${{ runner.os }}-${{ env.VERCEL_VERSION }}
+      - name: Install Vercel CLI
+        if: steps.vercel-cache.outputs.cache-hit != 'true'
+        run: npm install -g vercel@${{ env.VERCEL_VERSION }} --no-audit --no-fund --silent
       - name: Promote to Production
-        run: npm install -g vercel && vercel promote $VERCEL_DEPLOYMENT_URL --yes --token=$VERCEL_TOKEN --scope=experius
+        run: vercel promote $VERCEL_DEPLOYMENT_URL --yes --token=$VERCEL_TOKEN --scope=experius
         env:
           VERCEL_DEPLOYMENT_URL: ${{ github.event.client_payload.url }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
+  check-vercel-env:
+    runs-on: ubuntu-latest
+    needs: [resolve-context]
+    if: ${{ contains(fromJson('["production","staging","upgrade"]'), needs.resolve-context.outputs.resolved_env) }}
+    outputs:
+      set_csp_headers: ${{ steps.check.outputs.set_csp_headers }}
+    steps:
+      - name: Cache Vercel CLI
+        id: vercel-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            /usr/local/lib/node_modules/vercel
+            /usr/local/bin/vercel
+          key: vercel-cli-${{ runner.os }}-${{ env.VERCEL_VERSION }}
+      - name: Install Vercel CLI
+        if: steps.vercel-cache.outputs.cache-hit != 'true'
+        run: npm install -g vercel@${{ env.VERCEL_VERSION }} --no-audit --no-fund --silent
+      - name: Check Vercel env flags
+        id: check
+        run: |
+          vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
+          set -a
+          source .env.vercel
+          set +a
+          missing=()
+          [[ -z "${FASTLY_SERVICE_ID:-}" ]] && missing+=("FASTLY_SERVICE_ID")
+          [[ -z "${FASTLY_API_KEY:-}" ]]    && missing+=("FASTLY_API_KEY")
+          [[ -z "${SANSEC_ID:-}" ]]         && missing+=("SANSEC_ID")
+          [[ -z "${CSP_STRICT:-}" ]]        && missing+=("CSP_STRICT")
+          if [[ ${#missing[@]} -eq 0 ]]; then
+            echo "set_csp_headers=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "set_csp_headers=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping CSP header generation; missing or empty: ${missing[*]}"
+          fi
+        env:
+          VERCEL_ENV: ${{ needs.resolve-context.outputs.resolved_env }}
+          VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+
   generate-csp-headers:
     runs-on: ubuntu-latest
-    needs: [resolve-context, promote]
-    if: ${{ always() && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["staging","upgrade"]'), needs.resolve-context.outputs.resolved_env))) }}
+    needs: [resolve-context, promote, check-vercel-env]
+    if: ${{ always() && needs.check-vercel-env.outputs.set_csp_headers == 'true' && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["staging","upgrade"]'), needs.resolve-context.outputs.resolved_env))) }}
     steps:
+      - name: Cache Vercel CLI
+        id: vercel-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            /usr/local/lib/node_modules/vercel
+            /usr/local/bin/vercel
+          key: vercel-cli-${{ runner.os }}-${{ env.VERCEL_VERSION }}
+      - name: Install Vercel CLI
+        if: steps.vercel-cache.outputs.cache-hit != 'true'
+        run: npm install -g vercel@${{ env.VERCEL_VERSION }} --no-audit --no-fund --silent
       - name: Generate CSP Headers
         run: |
-          npm install -g vercel
           vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
           source .env.vercel
           url="https://trigger.happyhorizon.dev/csp_manage_fastly_header?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}&SANSEC_ID=${SANSEC_ID}&CSP_STRICT=${CSP_STRICT}"
@@ -58,12 +126,23 @@ jobs:
 
   full-purge-fastly:
     runs-on: ubuntu-latest
-    needs: [resolve-context, promote, generate-csp-headers]
+    needs: [resolve-context, promote, check-vercel-env, generate-csp-headers]
     if: ${{ always() && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["production","staging","upgrade"]'), needs.resolve-context.outputs.resolved_env))) }}
     steps:
+      - name: Cache Vercel CLI
+        id: vercel-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            /usr/local/lib/node_modules/vercel
+            /usr/local/bin/vercel
+          key: vercel-cli-${{ runner.os }}-${{ env.VERCEL_VERSION }}
+      - name: Install Vercel CLI
+        if: steps.vercel-cache.outputs.cache-hit != 'true'
+        run: npm install -g vercel@${{ env.VERCEL_VERSION }} --no-audit --no-fund --silent
       - name: Full Purge Fastly
         run: |
-          npm install -g vercel
           vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
           source .env.vercel
           url="https://trigger.happyhorizon.dev/fastly-flush-cache?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}"
