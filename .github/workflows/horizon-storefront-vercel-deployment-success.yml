@@ -7,7 +7,9 @@ jobs:
   resolve-context:
     runs-on: ubuntu-latest
     outputs:
-      resolved_env: ${{ steps.resolve.outputs.resolved_env }}
+      vercel_env: ${{ steps.resolve.outputs.vercel_env }}
+      gate_env: ${{ steps.resolve.outputs.gate_env }}
+      csp_eligible: ${{ steps.resolve.outputs.csp_eligible }}
     steps:
       - name: Resolve deployment environment
         id: resolve
@@ -16,17 +18,38 @@ jobs:
           PAYLOAD_REF: ${{ github.event.client_payload.git.ref }}
           PAYLOAD_ENV: ${{ github.event.client_payload.environment || github.event.client_payload.target || '' }}
         run: |
-          case "${PAYLOAD_REF}" in
-            production|refs/heads/production) resolved_env="production" ;;
-            staging|refs/heads/staging) resolved_env="staging" ;;
-            upgrade|refs/heads/upgrade) resolved_env="upgrade" ;;
-            *) resolved_env="${PAYLOAD_ENV:-preview}" ;;
+          case "${PAYLOAD_ENV}" in
+            production|upgrade|release) vercel_env="${PAYLOAD_ENV}" ;;
+            *)                          vercel_env="preview" ;;
           esac
-          echo "resolved_env=${resolved_env}" >> "$GITHUB_OUTPUT"
+
+          gate_env="${vercel_env}"
+          if [ "${vercel_env}" = "preview" ]; then
+            case "${PAYLOAD_REF}" in
+              staging|refs/heads/staging) gate_env="staging" ;;
+            esac
+          fi
+
+          csp_eligible="false"
+          case "${gate_env}" in
+            production|staging|upgrade|release) csp_eligible="true" ;;
+          esac
+
+          if [ "${vercel_env}" != "release" ]; then
+            case "${PAYLOAD_REF}" in
+              release|refs/heads/release|release/*|refs/heads/release/*)
+                csp_eligible="false"
+                ;;
+            esac
+          fi
+
+          echo "vercel_env=${vercel_env}" >> "$GITHUB_OUTPUT"
+          echo "gate_env=${gate_env}" >> "$GITHUB_OUTPUT"
+          echo "csp_eligible=${csp_eligible}" >> "$GITHUB_OUTPUT"
   promote:
     runs-on: ubuntu-latest
     needs: [resolve-context]
-    if: ${{ needs.resolve-context.outputs.resolved_env == 'production' }}
+    if: ${{ needs.resolve-context.outputs.gate_env == 'production' }}
     environment: production
     steps:
       - name: Cache Vercel CLI
@@ -50,7 +73,7 @@ jobs:
   check-vercel-env:
     runs-on: ubuntu-latest
     needs: [resolve-context]
-    if: ${{ contains(fromJson('["production","staging","upgrade"]'), needs.resolve-context.outputs.resolved_env) }}
+    if: ${{ needs.resolve-context.outputs.csp_eligible == 'true' }}
     outputs:
       set_csp_headers: ${{ steps.check.outputs.set_csp_headers }}
     steps:
@@ -85,7 +108,7 @@ jobs:
             echo "Skipping CSP header generation; missing or empty: ${missing[*]}"
           fi
         env:
-          VERCEL_ENV: ${{ needs.resolve-context.outputs.resolved_env }}
+          VERCEL_ENV: ${{ needs.resolve-context.outputs.vercel_env }}
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -93,7 +116,7 @@ jobs:
   generate-csp-headers:
     runs-on: ubuntu-latest
     needs: [resolve-context, promote, check-vercel-env]
-    if: ${{ always() && needs.check-vercel-env.outputs.set_csp_headers == 'true' && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["staging","upgrade"]'), needs.resolve-context.outputs.resolved_env))) }}
+    if: ${{ always() && needs.check-vercel-env.outputs.set_csp_headers == 'true' && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["staging","upgrade","release"]'), needs.resolve-context.outputs.gate_env))) }}
     steps:
       - name: Cache Vercel CLI
         id: vercel-cache
@@ -118,7 +141,7 @@ jobs:
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
           if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
         env:
-          VERCEL_ENV: ${{ needs.resolve-context.outputs.resolved_env }}
+          VERCEL_ENV: ${{ needs.resolve-context.outputs.vercel_env }}
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -126,7 +149,7 @@ jobs:
   full-purge-fastly:
     runs-on: ubuntu-latest
     needs: [resolve-context, promote, check-vercel-env, generate-csp-headers]
-    if: ${{ always() && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["production","staging","upgrade"]'), needs.resolve-context.outputs.resolved_env))) }}
+    if: ${{ always() && (needs.promote.result == 'success' || (needs.promote.result == 'skipped' && contains(fromJson('["production","staging","upgrade","release"]'), needs.resolve-context.outputs.gate_env))) }}
     steps:
       - name: Cache Vercel CLI
         id: vercel-cache
@@ -151,7 +174,7 @@ jobs:
           if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
           if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
         env:
-          VERCEL_ENV: ${{ needs.resolve-context.outputs.resolved_env }}
+          VERCEL_ENV: ${{ needs.resolve-context.outputs.vercel_env }}
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -160,7 +183,7 @@ jobs:
     runs-on: ubuntu-latest
     name: New Relic
     needs: [resolve-context, promote]
-    if: ${{ needs.resolve-context.outputs.resolved_env == 'production' && needs.promote.result == 'success' && vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID != '' }}
+    if: ${{ needs.resolve-context.outputs.gate_env == 'production' && needs.promote.result == 'success' && vars.NEW_RELIC_DEPLOYMENT_ENTITY_GUID != '' }}
     steps:
       - name: Get current date
         id: date
