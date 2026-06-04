@@ -160,6 +160,7 @@ jobs:
           COMPOSER_PROCESS_TIMEOUT: ${{ secrets.COMPOSER_PROCESS_TIMEOUT }}
           MAINTENANCE_IP_WHITELIST: ${{ secrets.MAINTENANCE_IP_WHITELIST }}
           HYPERNODE_API_TOKEN: ${{ secrets.HYPERNODE_API_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
@@ -177,6 +178,7 @@ jobs:
             -e COMPOSER_PROCESS_TIMEOUT \
             -e MAINTENANCE_IP_WHITELIST \
             -e HYPERNODE_API_TOKEN \
+            -e GITHUB_RUN_ID \
             -e DEPLOY_CONFIG_STAGE \
             -e HORIZON_DEPLOY_BOOTSTRAP \
             -e HORIZON_DEPLOY_DEFAULTS \
