@@ -66,6 +66,10 @@ on:
         type: string
         default: ""
         description: Workflow run ID to download the artifact from (required when artifact_name is set)
+      enable_preview_environment:
+        type: boolean
+        default: false
+        description: Enable acceptance/Brancher preview deploys. Keep false to disable preview rollout for a client.
       environment_name:
         type: string
         default: ""
@@ -109,6 +113,13 @@ jobs:
       - name: Checkout application
         uses: actions/checkout@v4
 
+      - name: Validate GH_TOKEN for toolkit checkout
+        if: inputs.toolkit_repository != '' && secrets.GH_TOKEN == ''
+        run: |
+          echo "GH_TOKEN is required when toolkit_repository is set."
+          echo "Add GH_TOKEN to the caller repository/org secrets with read access to ${{ inputs.toolkit_repository }}."
+          exit 1
+
       - name: Checkout deploy toolkit
         if: inputs.toolkit_repository != ''
         uses: actions/checkout@v4
@@ -116,7 +127,7 @@ jobs:
           repository: ${{ inputs.toolkit_repository }}
           ref: ${{ inputs.toolkit_ref }}
           path: _horizon_deploy_toolkit
-          token: ${{ secrets.GH_TOKEN || github.token }}
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Download build artifact
         if: inputs.artifact_name != ''
@@ -142,7 +153,14 @@ jobs:
           if [ -z "$IMG" ]; then IMG="$FALLBACK"; fi
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
 
+      - name: Preview rollout disabled
+        if: inputs.deploy_stage == 'acceptance' && !inputs.enable_preview_environment
+        run: |
+          echo "Acceptance preview deploys are disabled for this project."
+          echo "Set enable_preview_environment: true in the caller workflow to enable."
+
       - name: Deploy
+        if: inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           DEPLOY_COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
@@ -176,7 +194,7 @@ jobs:
 
       - name: Parse deployment report
         id: report
-        if: always()
+        if: (inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment) && always()
         run: |
           if [ -f deployment-report.json ]; then
             HOSTNAME=$(jq -r '.hostnames[0] // empty' deployment-report.json)

@@ -60,6 +60,7 @@ jobs:
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
 - `artifact_name` (optional): artifact name to download into `build/`
 - `artifact_run_id` (optional): run ID used for artifact download
+- `enable_preview_environment` (optional, default `false`): opt-in switch for `acceptance`/Brancher preview deployments
 - `environment_name` / `environment_url` (optional): caller-level metadata only if you decide to pass it
 
 #### Secrets
