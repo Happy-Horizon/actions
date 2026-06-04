@@ -110,21 +110,6 @@ jobs:
       name: ${{ inputs.environment_name || inputs.deploy_stage }}
       url: ${{ inputs.environment_url }}
     steps:
-      - name: Checkout application
-        uses: actions/checkout@v4
-
-      - name: Validate GH_TOKEN for toolkit checkout
-        if: inputs.toolkit_repository != ''
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: |
-          if [ -n "$GH_TOKEN" ]; then
-            exit 0
-          fi
-          echo "GH_TOKEN is required when toolkit_repository is set."
-          echo "Add GH_TOKEN to the caller repository/org secrets with read access to ${{ inputs.toolkit_repository }}."
-          exit 1
-
       - name: Checkout deploy toolkit
         if: inputs.toolkit_repository != ''
         uses: actions/checkout@v4
@@ -132,7 +117,7 @@ jobs:
           repository: ${{ inputs.toolkit_repository }}
           ref: ${{ inputs.toolkit_ref }}
           path: _horizon_deploy_toolkit
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_TOKEN || github.token }}
 
       - name: Download build artifact
         if: inputs.artifact_name != ''
