@@ -114,8 +114,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate GH_TOKEN for toolkit checkout
-        if: inputs.toolkit_repository != '' && secrets.GH_TOKEN == ''
+        if: inputs.toolkit_repository != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
+          if [ -n "$GH_TOKEN" ]; then
+            exit 0
+          fi
           echo "GH_TOKEN is required when toolkit_repository is set."
           echo "Add GH_TOKEN to the caller repository/org secrets with read access to ${{ inputs.toolkit_repository }}."
           exit 1
