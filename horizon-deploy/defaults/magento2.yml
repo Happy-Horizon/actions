@@ -1,0 +1,76 @@
+# Central defaults for Hypernode Deploy (Magento 2). Override or extend from project deploy.settings.yml.
+defaults:
+  recipe: magento2
+  php_version: "8.2"
+  public_folder: pub
+  magento_dir: null
+  hypernode_settings:
+    - name: php_version
+      value: "8.2"
+  variables:
+    build:
+      static_content_locales: "en_US nl_NL"
+      static_content_jobs: 4
+      magento_themes:
+        - Magento/backend
+        - Magento/blank
+      composer_process_timeout: 300
+      env:
+        MAGE_MODE: production
+    deploy:
+      deploy_path: /data/web/deploy
+      keep_releases: 3
+      maintenance_ip_whitelist: "${MAINTENANCE_IP_WHITELIST}"
+  shared_files:
+    - app/etc/env.php
+    - pub/errors/local.xml
+    - pub/.user.ini
+  shared_folders:
+    - pub/sitemaps
+    - var/export
+    - var/import_history
+    - var/importexport
+    - var/log
+    - var/report
+    - var/session
+    - pub/media
+  deploy_excludes:
+    - ./Capfile
+    - ./Gemfile
+    - ./Gemfile.lock
+    - ./grunt-config.json.sample
+    - ./nginx.conf.sample
+    - ./package.json.sample
+    - ./.htaccess.sample
+    - ./Gruntfile.js.sample
+    - ./auth.json
+    - ./bitbucket-pipelines.yml
+    - ./bitbucket-pipelines.yml.sample
+    - ./deploy.php.sample
+    - ./grumphp.yml
+    - ./ruleset.xml
+    - ./app/etc/env.dev.php
+    - ./config.yml
+    - ./ascii
+    - ./capistrano
+    - ./config
+    - ./phpserver
+    - ./docker
+    - ./dev
+    - ./deploy
+    - ./var/cache
+    - ./var/page_cache
+    - ./var/composer_home
+    - ./deploy.settings.yml
+    - ./deploy.config.json
+    - ./horizon-deploy
+  build_tasks:
+    - deploy:vendors
+    - magento:compile
+    - magento:deploy:assets
+  deploy_tasks:
+    - magento:maintenance:enable-if-needed
+    - magento:config:import
+    - magento:upgrade:db
+    - magento:cache:flush
+    - magento:maintenance:disable
