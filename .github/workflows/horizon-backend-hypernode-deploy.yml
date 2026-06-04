@@ -110,6 +110,9 @@ jobs:
       name: ${{ inputs.environment_name || inputs.deploy_stage }}
       url: ${{ inputs.environment_url }}
     steps:
+      - name: Checkout application
+        uses: actions/checkout@v4
+
       - name: Checkout deploy toolkit
         if: inputs.toolkit_repository != ''
         uses: actions/checkout@v4
