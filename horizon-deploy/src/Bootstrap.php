@@ -98,7 +98,12 @@ final class Bootstrap
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable; fi");
         });
 
-        desc('Syncs all nginx configs from repo to /data/web/nginx/ (ssl/ excluded)');
+        // No-op override: prevent any recipe-level nginx vhost task from running.
+        // All nginx configuration is managed exclusively via hypernode:nginx:sync.
+        desc('No-op: nginx vhost configuration skipped (managed via hypernode:nginx:sync)');
+        task('hypernode:configure:nginx', function () {});
+
+        desc('Syncs all nginx configs from repo to /data/web/nginx/ (ssl/ excluded, authoritative)');
         task('hypernode:nginx:sync', function () {
             $path = '';
             try {
@@ -111,7 +116,7 @@ final class Bootstrap
                 return;
             }
             upload(rtrim($path, '/') . '/', '/data/web/nginx/', [
-                'options' => ['--exclude=ssl/'],
+                'options' => ['--exclude=ssl/', '--delete'],
             ]);
         });
 
