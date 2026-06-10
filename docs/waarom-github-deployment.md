@@ -1,80 +1,73 @@
-# Waarom wij deployen via GitHub — en wat dat voor jou betekent
+# Onze vernieuwde deploymentaanpak — wat er is veranderd en waarom
 
-Dit document legt uit waarom Happy Horizon is overgestapt van een Bitbucket-gebaseerde naar een GitHub-gebaseerde deploymentpipeline, en welke voordelen dat concreet oplevert voor jouw project.
-
----
-
-## 1. Veiligere deploys — geen halve releases meer
-
-**Voorheen:** bestanden werden direct overschreven op de live server. Als er iets misging halverwege een deploy, stond de website in een kapotte, half-bijgewerkte staat.
-
-**Nu:** elke deploy wordt eerst volledig klaargezet in een tijdelijke map. Pas als alles succesvol is afgerond, wordt de website in één atomaire stap omgezet naar de nieuwe versie. Mislukt de deploy? De live site merkt er niets van.
+Bij Happy Horizon hebben we onze deploymentpipeline vernieuwd. We zijn overgestapt van een Bitbucket-gebaseerde naar een GitHub-gebaseerde aanpak, gebouwd op Hypernode Deploy. Dit document legt uit wat er concreet is veranderd en welke voordelen dat oplevert voor jouw project.
 
 ---
 
-## 2. Rollback in seconden
+## 1. Atomische releases — veiliger bij onverwachte situaties
 
-**Voorheen:** bij een probleem na een deploy moest er handmatig worden ingegrepen — bestanden terugzetten, configuratie controleren, databasewijzigingen terugdraaien.
+Onze vorige aanpak werkte via directe rsync naar de live map op de server. Dit was snel en effectief, maar had één nadeel: als er iets onverwachts misging halverwege een deploy (een netwerkkieping, een fout in een script), kon de site tijdelijk in een inconsistente staat terechtkomen.
 
-**Nu:** de vorige versie staat nog gewoon op de server. Terugdraaien naar de vorige werkende release duurt seconden en vereist geen handmatig werk.
+De nieuwe aanpak zet elke release volledig klaar in een tijdelijke map. Pas als alles succesvol is afgerond, wordt de live versie in één stap omgewisseld. Zo is de overgang altijd atomair — de site is volledig oud of volledig nieuw, nooit half.
+
+---
+
+## 2. Rollback zonder handmatig werk
+
+Vorige releases worden bewaard op de server. Als er na een deploy toch een probleem opduikt, kan in seconden worden teruggeschakeld naar de vorige werkende versie — zonder handmatig bestanden te herstellen of database-aanpassingen terug te draaien.
 
 ---
 
 ## 3. Bouwen en deployen zijn gescheiden
 
-**Voorheen:** elke deploy bouwde de applicatie opnieuw op — composers installeren, bestanden genereren, alles compileren — en stuurde het daarna direct naar productie. Dit kostte veel tijd en betekende dat productie ook het bouwproces meemaakte.
+Voorheen vonden het bouwproces (composer install, compileren, static content genereren) en de deploy in één aaneengesloten pipeline plaats. Dat werkte prima, maar betekende dat productie ook het bouwproces meemaakte.
 
-**Nu:** de bouw gebeurt eenmalig en wordt opgeslagen als een kant-en-klaar pakket (artifact). Dat pakket kan meerdere keren worden ingezet zonder opnieuw te hoeven bouwen. Productiedeployments zijn daardoor sneller en stabieler.
-
----
-
-## 4. Productie gaat live op jouw moment
-
-**Voorheen:** een push naar de productiebranch triggerde direct een volledige deploy.
-
-**Nu:** bouwen en deployen zijn losgekoppeld. De build wordt aangemaakt bij een push, maar de daadwerkelijke productiedeploy wordt handmatig gestart — op het moment dat jij (of wij) er klaar voor bent. Je kiest expliciet welke build naar productie gaat. Dit voorkomt onbedoelde deploys buiten kantooruren.
+Nu wordt de applicatie eenmalig gebouwd en opgeslagen als een kant-en-klaar pakket. Dat pakket kan meerdere keren worden ingezet — op staging ter validatie, en daarna op productie — zonder opnieuw te bouwen. Dit maakt deploys reproduceerbaar: staging en productie draaien exact dezelfde build.
 
 ---
 
-## 5. Eén deployproces voor alle projecten
+## 4. Productie gaat live op het gekozen moment
 
-**Voorheen:** elk project had zijn eigen kopie van de deploymentlogica. Een verbetering of bugfix in het deployproces moest per project handmatig worden doorgevoerd.
+De build wordt automatisch aangemaakt bij een push naar de productiebranch, maar de daadwerkelijke productiedeploy wordt bewust handmatig gestart. Je kiest zelf welke build naar productie gaat en wanneer. Dit geeft meer controle en voorkomt onbedoelde deploys buiten kantooruren.
 
-**Nu:** de kernlogica (bouwen, deployen, CI, nginx, cron) staat in één centrale gedeelde repository. Alle projecten delen dit. Een verbetering geldt automatisch voor iedereen.
+---
+
+## 5. Één centrale deploylogica voor alle projecten
+
+Voorheen bevatte elk project zijn eigen kopie van de deploymentconfiguratie. Verbeteringen moesten per project worden doorgevoerd.
+
+Nu staat de kernlogica (bouwen, deployen, CI, nginx-synchronisatie, cron) in één centrale gedeelde repository. Alle projecten maken hier gebruik van. Een verbetering of aanpassing in het deployproces geldt automatisch voor elk project dat de gedeelde toolkit gebruikt.
 
 ---
 
 ## 6. Nginx en crontab worden meegedeployed
 
-**Voorheen:** aanpassingen aan de webserverconfiguratie (nginx) of de geplande taken (crontab) vereisten handmatig inloggen op de server via SSH.
-
-**Nu:** nginx-configuratie en crontabs staan in de repository en worden automatisch meegenomen bij elke deploy. Configuratiewijzigingen zijn traceerbaar, versiebaar en reproduceerbaar.
+Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) staan nu in de repository en worden automatisch meegenomen bij elke deploy. Hierdoor zijn ook infrastructurele wijzigingen traceerbaar en reproduceerbaar — net als codewijzigingen.
 
 ---
 
-## 7. Gedeelde bestanden blijven intact tussen deploys
+## 7. Gedeelde bestanden blijven intact tussen releases
 
-**Voorheen:** bestanden als uploadmappen, logbestanden en omgevingsconfiguratie moesten handmatig worden uitgesloten van de rsync om overschrijven te voorkomen.
-
-**Nu:** bestanden die per omgeving anders zijn (zoals `env.php`, `pub/media`, `var/log`) zijn als "gedeeld" gedefinieerd en worden automatisch als symlink gekoppeld aan elke nieuwe release. Ze worden nooit overschreven.
+Bestanden die per omgeving anders zijn — zoals uploadmappen, logbestanden en omgevingsconfiguratie — zijn als "gedeeld" gedefinieerd en worden automatisch als symlink gekoppeld aan elke nieuwe release. Ze worden nooit overschreven door een deploy.
 
 ---
 
-## 8. Ingebouwde CI — codekwaliteit voor elke wijziging
+## 8. Codekwaliteit ingebouwd in het proces
 
-Bij elke pull request en push worden automatisch statische codeanalyses uitgevoerd. Problemen in de code worden gesignaleerd vóórdat ze de server bereiken.
+Bij elke pull request en push worden automatisch statische codeanalyses uitgevoerd. Potentiële problemen worden gesignaleerd vóórdat ze de server bereiken.
 
 ---
 
-## Samenvatting
+## Overzicht
 
-| | Bitbucket (oud) | GitHub (nieuw) |
+| | Vorige aanpak | Nieuwe aanpak |
 |---|---|---|
 | Deploystrategie | Directe rsync naar live map | Atomische releases met symlink-wissel |
-| Bij mislukte deploy | Site kan kapot zijn | Live site onaangetast |
-| Rollback | Handmatig, tijdrovend | Automatisch, seconden |
+| Onverwachte fout tijdens deploy | Tijdelijk inconsistente staat mogelijk | Live site onaangetast |
+| Rollback | Handmatig | Automatisch, seconden |
 | Bouwen vs. deployen | Samen in één stap | Gescheiden — build eenmalig, deploy wanneer klaar |
-| Productiedeploy | Direct bij push | Handmatig starten, jij bepaalt het moment |
-| Deploylogica per project | Eigen kopie, moeilijk te onderhouden | Centraal gedeeld, één update geldt voor iedereen |
-| Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit de repository |
+| Staging en productie | Aparte builds | Zelfde build, gevalideerd op staging |
+| Productiedeploy | Direct bij push | Handmatig starten, bewust gekozen moment |
+| Deploylogica per project | Eigen kopie | Centraal gedeeld |
+| Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
 | Codekwaliteit | Optioneel | Ingebouwd in elke pull request |
