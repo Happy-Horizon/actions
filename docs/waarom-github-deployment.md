@@ -26,13 +26,7 @@ Nu wordt de applicatie eenmalig gebouwd en opgeslagen als een kant-en-klaar pakk
 
 ---
 
-## 4. Productie gaat live op het gekozen moment
-
-De build wordt automatisch aangemaakt bij een push naar de productiebranch, maar de daadwerkelijke productiedeploy wordt bewust handmatig gestart. Je kiest zelf welke build naar productie gaat en wanneer. Dit geeft meer controle en voorkomt onbedoelde deploys buiten kantooruren.
-
----
-
-## 5. Één centrale deploylogica voor alle projecten
+## 4. Één centrale deploylogica voor alle projecten
 
 Voorheen bevatte elk project zijn eigen kopie van de deploymentconfiguratie. Verbeteringen moesten per project worden doorgevoerd.
 
@@ -40,19 +34,19 @@ Nu staat de kernlogica (bouwen, deployen, CI, nginx-synchronisatie, cron) in é�
 
 ---
 
-## 6. Nginx en crontab worden meegedeployed
+## 5. Nginx en crontab worden meegedeployed
 
 Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) staan nu in de repository en worden automatisch meegenomen bij elke deploy. Hierdoor zijn ook infrastructurele wijzigingen traceerbaar en reproduceerbaar — net als codewijzigingen.
 
 ---
 
-## 7. Gedeelde bestanden blijven intact tussen releases
+## 6. Gedeelde bestanden blijven intact tussen releases
 
 Bestanden die per omgeving anders zijn — zoals uploadmappen, logbestanden en omgevingsconfiguratie — zijn als "gedeeld" gedefinieerd en worden automatisch als symlink gekoppeld aan elke nieuwe release. Ze worden nooit overschreven door een deploy.
 
 ---
 
-## 8. Codekwaliteit ingebouwd in het proces
+## 7. Codekwaliteit ingebouwd in het proces
 
 Bij elke pull request en push worden automatisch statische codeanalyses uitgevoerd. Potentiële problemen worden gesignaleerd vóórdat ze de server bereiken.
 
@@ -67,7 +61,6 @@ Bij elke pull request en push worden automatisch statische codeanalyses uitgevoe
 | Rollback | Handmatig | Automatisch, seconden |
 | Bouwen vs. deployen | Samen in één stap | Gescheiden — build eenmalig, deploy wanneer klaar |
 | Staging en productie | Aparte builds | Zelfde build, gevalideerd op staging |
-| Productiedeploy | Direct bij push | Handmatig starten, bewust gekozen moment |
 | Deploylogica per project | Eigen kopie | Centraal gedeeld |
 | Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
 | Codekwaliteit | Optioneel | Ingebouwd in elke pull request |
