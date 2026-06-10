@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace HappyHorizon\Deploy;
 
 use Hypernode\DeployConfiguration\Configuration;
+use Hypernode\DeployConfiguration\PlatformConfiguration\CronConfiguration;
 use Hypernode\DeployConfiguration\PlatformConfiguration\HypernodeSettingConfiguration;
 use Symfony\Component\Yaml\Yaml;
 use function Deployer\commandExist;
@@ -12,6 +13,7 @@ use function Deployer\desc;
 use function Deployer\get;
 use function Deployer\run;
 use function Deployer\task;
+use function Deployer\upload;
 use function Deployer\warning;
 
 final class Bootstrap
@@ -94,6 +96,23 @@ final class Bootstrap
         desc('Disables maintenance mode');
         task('magento:maintenance:disable', function () {
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable; fi");
+        });
+
+        desc('Syncs all nginx configs from repo to /data/web/nginx/ (ssl/ excluded)');
+        task('hypernode:nginx:sync', function () {
+            $path = '';
+            try {
+                $path = (string) get('nginx_config_path');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                // not configured
+            }
+            if ($path === '') {
+                warning('hypernode:nginx:sync: nginx_config_path is not set, skipping.');
+                return;
+            }
+            upload(rtrim($path, '/') . '/', '/data/web/nginx/', [
+                'options' => ['--exclude=ssl/'],
+            ]);
         });
 
         desc('Installs vendors');
@@ -337,7 +356,7 @@ final class Bootstrap
             }
         }
 
-        foreach (['recipe', 'php_version', 'public_folder'] as $scalarKey) {
+        foreach (['recipe', 'php_version', 'public_folder', 'nginx_config', 'cron_config'] as $scalarKey) {
             if (\array_key_exists($scalarKey, $envBlock) && is_string($envBlock[$scalarKey]) && $envBlock[$scalarKey] !== '') {
                 $defaults[$scalarKey] = $envBlock[$scalarKey];
             }
@@ -380,8 +399,20 @@ final class Bootstrap
         if ($platform === [] && isset($defaults['php_version']) && is_string($defaults['php_version']) && $defaults['php_version'] !== '') {
             $platform[] = new HypernodeSettingConfiguration('php_version', $defaults['php_version']);
         }
+
+        $cronConfig = $defaults['cron_config'] ?? null;
+        if (is_string($cronConfig) && $cronConfig !== '') {
+            $platform[] = new CronConfiguration($cronConfig);
+        }
+
         if ($platform !== []) {
             $configuration->setPlatformConfigurations($platform);
+        }
+
+        $nginxConfig = $defaults['nginx_config'] ?? null;
+        if (is_string($nginxConfig) && $nginxConfig !== '') {
+            $configuration->setVariable('nginx_config_path', $nginxConfig, 'deploy');
+            $configuration->addDeployTask('hypernode:nginx:sync');
         }
 
         $variables = $defaults['variables'] ?? [];
