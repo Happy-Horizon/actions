@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# Usage: bin/setup-shared-symlinks <hypernode-name> [exclude_file] [magento_path] [deploy_path]
+#
+# SSHes into app@<name>.hypernode.io and migrates the existing Magento install
+# to the Hypernode Deploy shared/ structure by:
+#   - moving shared files/dirs from magento_path to deploy_path/shared/
+#   - replacing the originals with relative symlinks
+#
+# The list of paths is read from .exclude-files-deploy (or a custom exclude file).
+# Lines starting with # are comments. Glob patterns like var/* are expanded on
+# the remote server. Leading slashes are stripped.
+#
+# Defaults:
+#   exclude_file = .exclude-files-deploy  (relative to cwd / the project repo)
+#   magento_path = /data/web/magento2
+#   deploy_path  = /data/web/deploy
+#
+# Examples:
+#   bin/setup-shared-symlinks horizon
+#   bin/setup-shared-symlinks horizonstaging .exclude-files-deploy
+#   bin/setup-shared-symlinks horizon .exclude-files-deploy /data/web/magento2 /data/web/deploy
+
+set -euo pipefail
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $(basename "$0") <hypernode-name> [exclude_file] [magento_path] [deploy_path]" >&2
+    echo "  e.g. $(basename "$0") horizon" >&2
+    echo "  e.g. $(basename "$0") horizonstaging .exclude-files-deploy" >&2
+    exit 1
+fi
+
+NODE="$1"
+EXCLUDE_FILE="${2:-.exclude-files-deploy}"
+MAGENTO_PATH="${3:-/data/web/magento2}"
+DEPLOY_PATH="${4:-/data/web/deploy}"
+HOST="app@${NODE}.hypernode.io"
+
+if [ ! -f "${EXCLUDE_FILE}" ]; then
+    echo "Error: exclude file '${EXCLUDE_FILE}' not found. Run from the project root." >&2
+    exit 1
+fi
+
+# Parse the exclude file: strip comments, blank lines, leading/trailing slashes
+# Glob patterns (e.g. var/*) are kept and expanded on the remote server
+PATHS=$(grep -v '^\s*#' "${EXCLUDE_FILE}" | grep -v '^\s*$' | sed 's|^[[:space:]]*/||; s|/\?[[:space:]]*$||')
+
+echo "=== setup-shared-symlinks on ${NODE}.hypernode.io ==="
+echo "Exclude file : ${EXCLUDE_FILE}"
+echo "Source       : ${MAGENTO_PATH}"
+echo "Shared       : ${DEPLOY_PATH}/shared"
+echo ""
+
+ssh "${HOST}" bash -s "${MAGENTO_PATH}" "${DEPLOY_PATH}" <<REMOTE
+set -euo pipefail
+
+MAGENTO_PATH="\$1"
+DEPLOY_PATH="\$2"
+SHARED_DIR="\${DEPLOY_PATH}/shared"
+
+info()    { echo "  [info] \$*"; }
+success() { echo "  [ok]   \$*"; }
+skip()    { echo "  [skip] \$*"; }
+
+# All paths from the exclude file (globs expanded relative to magento_path)
+RAW_PATHS=(
+$(echo "${PATHS}" | while read -r p; do echo "  \"${p}\""; done)
+)
+
+echo "--- resolving paths in \${MAGENTO_PATH} ---"
+RESOLVED=()
+for pattern in "\${RAW_PATHS[@]}"; do
+    # Strip trailing slashes so glob expansion and dirname work correctly
+    pattern="\${pattern%/}"
+    # Expand glob relative to magento_path
+    matches=( \${MAGENTO_PATH}/\${pattern} )
+    for match in "\${matches[@]}"; do
+        # Strip any trailing slash bash may append for directories
+        match="\${match%/}"
+        [ -e "\${match}" ] || [ -L "\${match}" ] || continue
+        # Store relative path (no trailing slash)
+        rel="\${match#\${MAGENTO_PATH}/}"
+        RESOLVED+=("\${rel}")
+    done
+done
+
+if [ \${#RESOLVED[@]} -eq 0 ]; then
+    echo "  No matching paths found — nothing to do."
+    exit 0
+fi
+
+echo ""
+echo "--- setting up symlinks ---"
+for rel in "\${RESOLVED[@]}"; do
+    src="\${MAGENTO_PATH}/\${rel}"
+    dst="\${SHARED_DIR}/\${rel}"
+
+    mkdir -p "\$(dirname "\${dst}")"
+
+    if [ -L "\${src}" ]; then
+        skip "\${rel} (already a symlink)"
+        continue
+    fi
+
+    if [ -d "\${src}" ]; then
+        if [ ! -d "\${dst}" ]; then
+            info "\${rel}: moving dir to shared/"
+            mv "\${src}" "\${dst}"
+        else
+            info "\${rel}: merging source into existing shared/ (preserving content)"
+            rsync -a "\${src}/" "\${dst}/"
+            rm -rf "\${src}"
+        fi
+        mkdir -p "\$(dirname "\${src}")"
+    elif [ -f "\${src}" ]; then
+        if [ ! -f "\${dst}" ] || [ ! -s "\${dst}" ]; then
+            info "\${rel}: moving file to shared/ (replacing empty or missing dst)"
+            mv -f "\${src}" "\${dst}"
+        else
+            info "\${rel}: shared/ already has file with content, keeping shared/ version"
+            rm -f "\${src}"
+        fi
+        mkdir -p "\$(dirname "\${src}")"
+    else
+        skip "\${rel}: not found in source"
+        continue
+    fi
+
+    src_parent="\$(dirname "\${src}")"
+    rel_target="\$(realpath --relative-to="\${src_parent}" "\${dst}")"
+
+    if [ -L "\${src}" ]; then
+        skip "\${rel} (symlink already exists)"
+        continue
+    fi
+
+    ln -s "\${rel_target}" "\${src}"
+    success "\${rel} -> \${rel_target}"
+done
+
+echo ""
+echo "=== done ==="
+REMOTE

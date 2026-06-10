@@ -152,6 +152,35 @@ jobs:
           echo "Acceptance preview deploys are disabled for this project."
           echo "Set enable_preview_environment: true in the caller workflow to enable."
 
+      - name: Build
+        if: (inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment) && inputs.artifact_name == ''
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          COMPOSER_PROCESS_TIMEOUT: ${{ secrets.COMPOSER_PROCESS_TIMEOUT }}
+          DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
+        run: |
+          set -e
+          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          if [ -n "${{ inputs.toolkit_repository }}" ]; then
+            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
+          export HORIZON_DEPLOY_DEFAULTS="$DEF"
+          docker run --rm \
+            -e SSH_PRIVATE_KEY \
+            -e DEPLOY_COMPOSER_AUTH \
+            -e COMPOSER_PROCESS_TIMEOUT \
+            -e DEPLOY_CONFIG_STAGE \
+            -e HORIZON_DEPLOY_BOOTSTRAP \
+            -e HORIZON_DEPLOY_DEFAULTS \
+            -v "${GITHUB_WORKSPACE}:/build" \
+            -w /build \
+            "${{ steps.resolve_image.outputs.image }}" \
+            hypernode-deploy build -vvv
+
       - name: Deploy
         if: inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment
         env:

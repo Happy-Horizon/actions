@@ -1,0 +1,63 @@
+# Reusable CI workflow for Hypernode Magento 2 backend projects.
+#
+# Call from a backend repo:
+#
+#   jobs:
+#     ci:
+#       uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
+#       with:
+#         php_version: '8.2'
+#         scan_path: app/code
+#       secrets: inherit
+
+name: Reusable Magento CI
+
+on:
+  workflow_call:
+    inputs:
+      php_version:
+        type: string
+        default: '8.2'
+        description: PHP version to use for the CI jobs
+      php_extensions:
+        type: string
+        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql
+        description: PHP extensions to install
+      scan_path:
+        type: string
+        default: app/code
+        description: Path passed to the static scan script (relative to repo root)
+    secrets:
+      DEPLOY_COMPOSER_AUTH:
+        required: false
+
+jobs:
+  static-code-scans:
+    name: Static Code Scans
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.php_extensions }}
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+        env:
+          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+
+      - name: Run static code scans
+        run: bash ./vendor/experius/module-testsuite/Test/static/run.sh ${{ inputs.scan_path }}

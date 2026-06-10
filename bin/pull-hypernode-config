@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Usage: bin/pull-hypernode-config <hypernode-name> <environment>
+# Connects to app@<name>.hypernode.io and pulls:
+#   - crontab            → .hypernode/<env>/cron
+#   - /data/web/nginx/   → .hypernode/<env>/nginx/  (symlinks preserved)
+#
+# Examples:
+#   bin/pull-hypernode-config horizon production
+#   bin/pull-hypernode-config horizonstaging staging
+
+set -euo pipefail
+
+if [ $# -lt 2 ]; then
+    echo "Usage: $(basename "$0") <hypernode-name> <environment>" >&2
+    echo "  e.g. $(basename "$0") horizon production" >&2
+    echo "  e.g. $(basename "$0") horizonstaging staging" >&2
+    exit 1
+fi
+
+NODE="$1"
+ENV="$2"
+HOST="app@${NODE}.hypernode.io"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+OUT_DIR="${REPO_DIR}/.hypernode/${ENV}"
+
+# Paths must match cron_config / nginx_config in deploy.settings.yml
+CRON_FILE="${OUT_DIR}/cron"
+NGINX_DIR="${OUT_DIR}/nginx"
+
+echo "=== Pulling config from ${NODE}.hypernode.io → .hypernode/${ENV}/ ==="
+
+mkdir -p "${NGINX_DIR}"
+
+# ── Crontab ───────────────────────────────────────────────────────────────────
+echo "→ crontab"
+ssh "${HOST}" "crontab -l 2>/dev/null || true" > "${CRON_FILE}"
+echo "  .hypernode/${ENV}/cron"
+
+# ── Nginx configs (files + symlinks) ─────────────────────────────────────────
+echo "→ /data/web/nginx/"
+rsync -avz --links \
+    "${HOST}:/data/web/nginx/" \
+    "${NGINX_DIR}/"
+echo "  .hypernode/${ENV}/nginx/"
+
+echo "=== Done ==="

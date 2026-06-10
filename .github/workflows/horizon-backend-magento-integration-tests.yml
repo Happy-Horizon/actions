@@ -1,0 +1,140 @@
+# Reusable integration test workflow for Hypernode Magento 2 backend projects.
+#
+# Call from a backend repo:
+#
+#   jobs:
+#     integration-tests:
+#       if: false # remove when ready
+#       uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-integration-tests.yml@production
+#       secrets: inherit
+
+name: Reusable Magento Integration Tests
+
+on:
+  workflow_call:
+    inputs:
+      php_version:
+        type: string
+        default: '8.2'
+        description: PHP version to use
+      php_extensions:
+        type: string
+        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql
+        description: PHP extensions to install
+      db_name:
+        type: string
+        default: magento2_testsuite
+        description: MySQL database name
+      db_user:
+        type: string
+        default: magento2
+        description: MySQL database user
+    secrets:
+      DEPLOY_COMPOSER_AUTH:
+        required: false
+      TESTS_DB_PASSWORD:
+        required: false
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: ${{ inputs.db_name }}
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_RANDOM_ROOT_PASSWORD: 'yes'
+          MYSQL_USER: ${{ inputs.db_user }}
+          MYSQL_PASSWORD: ${{ secrets.TESTS_DB_PASSWORD }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+      elasticsearch:
+        image: experiusnl/elasticsearch:latest
+        env:
+          ES_JAVA_OPTS: '-Xms512m -Xmx512m'
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd="curl -f http://localhost:9200/_cluster/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.php_extensions }}
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+        env:
+          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+
+      - name: Setup integration test database
+        run: bash ./vendor/experius/module-testsuite/Test/setup-integration/run.sh db-only
+        env:
+          TESTS_DB_HOST: 127.0.0.1
+          TESTS_DB_USER: ${{ inputs.db_user }}
+          TESTS_DB_PASSWORD: ${{ secrets.TESTS_DB_PASSWORD }}
+          TESTS_DB_NAME: ${{ inputs.db_name }}
+
+      - name: Run API functional tests
+        run: |
+          php vendor/bin/phpunit --testsuite Experius --verbose --debug \
+            -c "$(pwd)/vendor/experius/module-testsuite/Test/api-functional/phpunit.xml"
+        env:
+          TESTS_DB_HOST: 127.0.0.1
+          TESTS_DB_USER: ${{ inputs.db_user }}
+          TESTS_DB_PASSWORD: ${{ secrets.TESTS_DB_PASSWORD }}
+          TESTS_DB_NAME: ${{ inputs.db_name }}
+
+      - name: Run integration tests
+        run: |
+          php vendor/bin/phpunit --testsuite Experius --verbose --debug \
+            -c "$(pwd)/vendor/experius/module-testsuite/Test/integration/phpunit.xml"
+        env:
+          TESTS_DB_HOST: 127.0.0.1
+          TESTS_DB_USER: ${{ inputs.db_user }}
+          TESTS_DB_PASSWORD: ${{ secrets.TESTS_DB_PASSWORD }}
+          TESTS_DB_NAME: ${{ inputs.db_name }}
+
+      - name: Run unit tests
+        run: |
+          php vendor/bin/phpunit --testsuite Experius --verbose --debug \
+            -c "$(pwd)/vendor/experius/module-testsuite/Test/unit/phpunit.xml"
+        env:
+          TESTS_DB_HOST: 127.0.0.1
+          TESTS_DB_USER: ${{ inputs.db_user }}
+          TESTS_DB_PASSWORD: ${{ secrets.TESTS_DB_PASSWORD }}
+          TESTS_DB_NAME: ${{ inputs.db_name }}
