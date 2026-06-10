@@ -40,13 +40,7 @@ Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) st
 
 ---
 
-## 6. Gedeelde bestanden blijven intact tussen releases
-
-Bestanden die per omgeving anders zijn — zoals uploadmappen, logbestanden en omgevingsconfiguratie — zijn als "gedeeld" gedefinieerd en worden automatisch als symlink gekoppeld aan elke nieuwe release. Ze worden nooit overschreven door een deploy.
-
----
-
-## 7. Codekwaliteit ingebouwd in het proces
+## 6. Codekwaliteit ingebouwd in het proces
 
 Bij elke pull request en push worden automatisch statische codeanalyses uitgevoerd. Potentiële problemen worden gesignaleerd vóórdat ze de server bereiken.
 
@@ -64,3 +58,4 @@ Bij elke pull request en push worden automatisch statische codeanalyses uitgevoe
 | Deploylogica per project | Eigen kopie | Centraal gedeeld |
 | Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
 | Codekwaliteit | Optioneel | Ingebouwd in elke pull request |
+
