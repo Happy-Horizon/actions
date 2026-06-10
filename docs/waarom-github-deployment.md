@@ -40,6 +40,14 @@ Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) st
 
 ---
 
+## 6. Voorbereiding op Hypernode Brancher
+
+De nieuwe deploymentopzet vormt de basis voor een volgende stap: [Hypernode Brancher](https://www.hypernode.com/nl/brancher/). Met Brancher wordt voor elke pull request automatisch een tijdelijke, volledig functionele kopie van de omgeving opgestart — inclusief database, configuratie en code. Zo kan een feature of bugfix worden getest in een geïsoleerde omgeving die identiek is aan staging of productie, nog vóór er iets wordt samengevoegd.
+
+Dit was met de vorige aanpak technisch niet haalbaar. De huidige pipeline — met gescheiden bouwen en deployen, centrale deploylogica en versiebeheer van infrastructure-instellingen — maakt dit straks mogelijk zonder extra handmatig werk per project.
+
+---
+
 ## Overzicht
 
 | | Vorige aanpak | Nieuwe aanpak |
@@ -51,4 +59,5 @@ Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) st
 | Staging en productie | Aparte builds | Zelfde build, gevalideerd op staging |
 | Deploylogica per project | Eigen kopie | Centraal gedeeld |
 | Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
+| Preview-omgevingen per PR | Niet beschikbaar | Voorbereid — Hypernode Brancher (volgende stap) |
 
