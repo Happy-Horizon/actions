@@ -40,12 +40,6 @@ Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) st
 
 ---
 
-## 6. Codekwaliteit ingebouwd in het proces
-
-Bij elke pull request en push worden automatisch statische codeanalyses uitgevoerd. Potentiële problemen worden gesignaleerd vóórdat ze de server bereiken.
-
----
-
 ## Overzicht
 
 | | Vorige aanpak | Nieuwe aanpak |
@@ -57,5 +51,4 @@ Bij elke pull request en push worden automatisch statische codeanalyses uitgevoe
 | Staging en productie | Aparte builds | Zelfde build, gevalideerd op staging |
 | Deploylogica per project | Eigen kopie | Centraal gedeeld |
 | Nginx / crontab beheer | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
-| Codekwaliteit | Optioneel | Ingebouwd in elke pull request |
 
