@@ -66,11 +66,14 @@ defaults:
     - ./horizon-deploy
   build_tasks:
     - deploy:vendors
+    - deploy:apcu-autoload
     - magento:compile
     - magento:deploy:assets
   deploy_tasks:
     - magento:maintenance:enable-if-needed
     - magento:config:import
     - magento:upgrade:db
+    - magento:performance:config
     - magento:cache:flush
+    - magento:cache:enable
     - magento:maintenance:disable
