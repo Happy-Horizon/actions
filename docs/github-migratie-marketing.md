@@ -1,67 +1,70 @@
-# Vernieuwde deployment — sneller, veiliger, klaar voor de toekomst
+# Vernieuwde deploymentaanpak — veiliger, reproduceerbaar, klaar voor de toekomst
 
-Bij Happy Horizon investeren we continu in betrouwbaardere releases. Daarom stappen we over op een **GitHub-gebaseerde deploymentpipeline** met **Hypernode Deploy** — dezelfde professionele aanpak die we succesvol hebben ingezet op onze eigen Horizon-projecten.
+Bij Happy Horizon hebben we onze deploymentpipeline vernieuwd. We zijn overgestapt van een Bitbucket-gebaseerde aanpak naar **GitHub Actions met Hypernode Deploy** — een modernere, betrouwbaardere manier van releasen die we succesvol hebben uitgerold op onze eigen Horizon-projecten.
 
-En het mooie? Voor een standaard Magento-backend is de **technische migratie naar deze nieuwe pipeline in ongeveer 2 uur** gerealiseerd. Geen wekenlange trajecten, geen verstoring van jullie dagelijkse werk — wél direct profiteren van een modernere, veiligere manier van releasen.
-
----
-
-## Wat betekent dit voor jou?
-
-### Veiliger live gaan
-Elke release wordt **volledig klaargezet vóór de wissel**. Pas als alles succesvol is afgerond, gaat de nieuwe versie live. Geen half-geüpdatete shop meer als er onverwacht iets misgaat — de site is altijd **volledig oud of volledig nieuw**.
-
-### Terugdraaien in seconden
-Mocht er toch iets opduiken na een release, dan schakelen we **snel terug** naar de vorige werkende versie. Zonder handmatig geklungel op de server.
-
-### Staging en productie op dezelfde build
-We **bouwen één keer** en zetten dat pakket eerst op staging ter validatie, daarna op productie. Zo weet je zeker dat wat je goedkeurt op staging **exact hetzelfde** is wat live gaat.
-
-### Alles onder controle in Git
-Aanpassingen aan **nginx** en **crontab** staan voortaan in de repository en gaan **automatisch mee** bij elke deploy. Infrastructurele wijzigingen zijn net zo traceerbaar als codewijzigingen.
-
-### Eén krachtige standaard voor alle projecten
-De deploylogica staat centraal beheerd. Verbeteringen in ons deployproces profiteren **automatisch alle klantprojecten** — jullie hoeven niet telkens opnieuw het wiel uit te vinden.
-
-### Klaar voor preview-omgevingen per pull request
-Deze pipeline legt de basis voor **Hypernode Brancher**: straks een tijdelijke, volledige kopie van jullie omgeving per feature of bugfix — testen vóór merge, zonder extra handwerk per project.
+Voor een standaard Magento-backend op Hypernode is de **technische migratie in circa 2 uur** gerealiseerd. Geen wekenlange trajecten, geen verstoring van jullie dagelijkse werk.
 
 ---
 
-## Wat verandert er praktisch?
+## Wat verandert er — en waarom
 
-| | Vroeger | Nu |
+### 1. Atomische releases — veiliger bij onverwachte situaties
+
+Onze vorige aanpak werkte via directe rsync naar de live map op de server. Snel en effectief, maar als er iets misging halverwege een deploy — een netwerkkieping, een fout in een script — kon de site tijdelijk in een inconsistente staat terechtkomen.
+
+De nieuwe aanpak zet elke release volledig klaar vóórdat er iets wisselt. Pas als alles succesvol is afgerond, wordt de live versie in één stap omgewisseld. De site is altijd **volledig oud of volledig nieuw**, nooit half.
+
+### 2. Rollback zonder handmatig werk
+
+Vorige releases worden bewaard op de server. Als er na een deploy toch een probleem opduikt, kan in seconden worden teruggeschakeld naar de vorige werkende versie — zonder handmatig bestanden te herstellen of database-aanpassingen terug te draaien.
+
+### 3. Bouwen en deployen zijn gescheiden
+
+Voorheen vonden het bouwproces (composer install, compileren, static content genereren) en de deploy in één aaneengesloten stap plaats. Nu wordt de applicatie **eenmalig gebouwd** en opgeslagen als een kant-en-klaar pakket. Dat pakket wordt eerst op staging gezet ter validatie, en daarna op productie — zonder opnieuw te bouwen.
+
+Dit maakt deploys reproduceerbaar: **staging en productie draaien exact dezelfde build**. Wat je goedkeurt op staging, is wat er live gaat.
+
+### 4. Nginx en crontab worden meegedeployed
+
+Aanpassingen aan de webserverconfiguratie (nginx) of geplande taken (crontab) staan voortaan in de repository en worden **automatisch meegenomen bij elke deploy**. Hierdoor zijn ook infrastructurele wijzigingen traceerbaar en reproduceerbaar — net als codewijzigingen.
+
+### 5. Één centrale deploylogica voor alle projecten
+
+Voorheen bevatte elk project zijn eigen kopie van de deploymentconfiguratie. Verbeteringen moesten per project worden doorgevoerd. Nu staat de kernlogica in één centrale gedeelde repository. **Een verbetering in het deployproces geldt automatisch voor elk project** dat de gedeelde toolkit gebruikt.
+
+### 6. Voorbereiding op Hypernode Brancher
+
+De nieuwe opzet vormt de basis voor [Hypernode Brancher](https://www.hypernode.com/nl/brancher/): straks een tijdelijke, volledig functionele kopie van jullie omgeving per pull request — inclusief database, configuratie en code — zodat een feature of bugfix getest kan worden vóór merge. Dit was met de vorige aanpak technisch niet haalbaar.
+
+---
+
+## Overzicht
+
+| | Vorige aanpak | Nieuwe aanpak |
 |---|---|---|
-| Deploy | Direct naar live map | Atomische release met veilige wissel |
-| Bij een fout halverwege | Risico op inconsistente site | Live site blijft intact |
-| Rollback | Handmatig | Snel en eenvoudig |
-| Staging vs. productie | Apart gebouwd | Dezelfde build, gevalideerd op staging |
-| Nginx & cron | Handmatig op server | Automatisch vanuit repository |
+| Deploystrategie | Directe rsync naar live map | Atomische release met symlink-wissel |
+| Onverwachte fout tijdens deploy | Tijdelijk inconsistente staat mogelijk | Live site onaangetast |
+| Rollback | Handmatig | Automatisch, in seconden |
+| Bouwen vs. deployen | Samen in één stap | Gescheiden — build eenmalig, deploy wanneer klaar |
+| Staging en productie | Aparte builds | Zelfde build, gevalideerd op staging |
+| Deploylogica per project | Eigen kopie | Centraal gedeeld |
+| Nginx / crontab | Handmatig via SSH | Automatisch meegedeployed vanuit repository |
+| Preview-omgevingen per PR | Niet beschikbaar | Voorbereid — Hypernode Brancher (volgende stap) |
 
 ---
 
 ## Migratie in circa 2 uur
 
-Voor een **standaard Magento-backend** op Hypernode plannen we **ongeveer 2 uur** voor de technische overstap naar de nieuwe pipeline — mits repository-toegang en servergegevens beschikbaar zijn.
+Voor een standaard Magento-backend regelen wij in die tijd:
 
-In die tijd regelen wij onder meer:
-
-- Koppeling van jullie project aan onze **gedeelde deploy-toolkit**
-- Inrichting van **GitHub Actions** voor build en deploy
-- Synchronisatie van **nginx- en cronconfiguratie** naar de repository
+- Koppeling van jullie project aan de **gedeelde deploy-toolkit**
+- Inrichting van **GitHub Actions** voor build, staging en productie
+- Ophalen van **nginx- en cronconfiguratie** naar de repository
 - Autorisatie van de **deploy-sleutel** op staging en productie
 - Een **eerste succesvolle deploy** naar staging
 
-Daarna volgt een korte validatie op staging; productie zetten we bewust en gecontroleerd live — **met exact de build die je op staging hebt goedgekeurd**.
+Daarna volgt een korte validatie; productie gaat bewust en gecontroleerd live — **met exact de build die je op staging hebt goedgekeurd**.
 
 ---
 
-## Waarom nu?
-
-Omdat jullie releaseproces **betrouwbaarder**, **transparanter** en **toekomstbestendiger** wordt — zonder dat het jullie team extra belast. Wij nemen de migratie uit handen; jullie merken vooral dat deploys **voorspelbaarder** worden en problemen **sneller** zijn op te lossen.
-
-**Interesse of vragen?** Neem contact op met Happy Horizon — we lopen graag kort met jullie door wat dit concreet betekent voor jullie project.
-
----
-
-*Gebaseerd op onze interne rollout (Horizon Backend) en de gedeelde Hypernode Deploy-toolkit van Happy Horizon.*
+*Gebaseerd op onze eigen rollout en de gedeelde Hypernode Deploy-toolkit van Happy Horizon.*
