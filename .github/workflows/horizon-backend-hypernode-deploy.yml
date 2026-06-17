@@ -97,8 +97,8 @@ on:
       HYPERNODE_API_TOKEN:
         required: false
       GH_TOKEN:
-        description: PAT with read access to the private toolkit repo (happy-horizon/actions). Cross-run artifact download uses GITHUB_TOKEN with actions:read.
-        required: true
+        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset. Cross-run artifact download uses GITHUB_TOKEN with actions:read.
+        required: false
 
 jobs:
   deploy:
@@ -116,14 +116,6 @@ jobs:
       - name: Checkout application
         uses: actions/checkout@v4
 
-      - name: Verify GH_TOKEN is configured
-        if: inputs.toolkit_repository != ''
-        run: |
-          if [ -z "${{ secrets.GH_TOKEN }}" ]; then
-            echo "::error::GH_TOKEN secret is missing. Add an org or repository secret (PAT with Contents read on happy-horizon/actions)."
-            exit 1
-          fi
-
       - name: Checkout deploy toolkit
         if: inputs.toolkit_repository != ''
         uses: actions/checkout@v4
@@ -131,7 +123,7 @@ jobs:
           repository: ${{ inputs.toolkit_repository }}
           ref: ${{ inputs.toolkit_ref }}
           path: _horizon_deploy_toolkit
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ secrets.GH_TOKEN || github.token }}
 
       - name: Download build artifact
         if: inputs.artifact_name != ''
