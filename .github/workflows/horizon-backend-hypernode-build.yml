@@ -1,0 +1,131 @@
+# Reusable Hypernode Magento build workflow.
+#
+# Call from a backend repo:
+#
+#   jobs:
+#     build:
+#       uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-build.yml@production
+#       with:
+#         deploy_stage: production
+#         artifact_name: deployment-build-production
+#         toolkit_repository: happy-horizon/actions
+#       secrets: inherit
+
+name: Reusable Hypernode Magento build
+
+on:
+  workflow_call:
+    inputs:
+      deploy_stage:
+        required: true
+        type: string
+        description: Stage key in deploy.settings.yml (e.g. production, staging)
+      deploy_image:
+        type: string
+        default: ""
+        description: >
+          Docker image for hypernode-deploy. If empty, uses environments.<stage>.deploy_image
+          from deploy.settings.yml when set, otherwise deploy_image_fallback.
+      deploy_image_fallback:
+        type: string
+        default: quay.io/hypernode/deploy:4-php8.2-node18
+        description: Used when deploy_image is empty and the stage has no deploy_image in deploy.settings.yml
+      toolkit_repository:
+        type: string
+        description: Repo that contains horizon-deploy/ (leave empty to use only the calling repo)
+        default: happy-horizon/actions
+      toolkit_ref:
+        type: string
+        default: production
+      toolkit_path_in_repo:
+        type: string
+        description: Path from repo root to horizon-deploy folder
+        default: horizon-deploy
+      artifact_name:
+        type: string
+        default: ""
+        description: Artifact name for build/build.tgz. When empty, defaults to deployment-build-<deploy_stage>.
+      artifact_path:
+        type: string
+        default: build/build.tgz
+      artifact_retention_days:
+        type: number
+        default: 7
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_COMPOSER_AUTH:
+        required: false
+      COMPOSER_PROCESS_TIMEOUT:
+        required: false
+      GH_TOKEN:
+        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset.
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout application
+        uses: actions/checkout@v4
+
+      - name: Checkout deploy toolkit
+        if: inputs.toolkit_repository != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.toolkit_repository }}
+          ref: ${{ inputs.toolkit_ref }}
+          path: _horizon_deploy_toolkit
+          token: ${{ secrets.GH_TOKEN || github.token }}
+
+      - name: Resolve deploy image
+        id: resolve_image
+        env:
+          STAGE: ${{ inputs.deploy_stage }}
+        run: |
+          set -e
+          OVERRIDE="${{ inputs.deploy_image }}"
+          FALLBACK="${{ inputs.deploy_image_fallback }}"
+          IMG="$OVERRIDE"
+          if [ -z "$IMG" ] && [ -f deploy.settings.yml ]; then
+            IMG=$(ruby -ryaml -e "d=YAML.load_file('deploy.settings.yml') rescue {}; v=d.dig('environments', ENV['STAGE'], 'deploy_image'); puts(v.nil? || v.to_s.strip.empty? ? '' : v.to_s.strip)")
+          fi
+          if [ -z "$IMG" ]; then IMG="$FALLBACK"; fi
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          COMPOSER_PROCESS_TIMEOUT: ${{ secrets.COMPOSER_PROCESS_TIMEOUT }}
+          DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
+        run: |
+          set -e
+          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          if [ -n "${{ inputs.toolkit_repository }}" ]; then
+            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
+          export HORIZON_DEPLOY_DEFAULTS="$DEF"
+          docker run --rm \
+            -e SSH_PRIVATE_KEY \
+            -e DEPLOY_COMPOSER_AUTH \
+            -e COMPOSER_PROCESS_TIMEOUT \
+            -e DEPLOY_CONFIG_STAGE \
+            -e HORIZON_DEPLOY_BOOTSTRAP \
+            -e HORIZON_DEPLOY_DEFAULTS \
+            -v "${GITHUB_WORKSPACE}:/build" \
+            -w /build \
+            "${{ steps.resolve_image.outputs.image }}" \
+            hypernode-deploy build -vvv
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name || format('deployment-build-{0}', inputs.deploy_stage) }}
+          path: ${{ inputs.artifact_path }}
+          retention-days: ${{ inputs.artifact_retention_days }}

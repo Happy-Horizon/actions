@@ -4,6 +4,44 @@ This directory contains reusable and project-level GitHub Actions workflows used
 
 ## Workflows
 
+### `horizon-backend-hypernode-build.yml`
+
+Reusable workflow for Magento backend builds via `hypernode-deploy`. Uploads `build/build.tgz` as a workflow artifact for later deploy promotion.
+
+#### Basic usage
+
+```yaml
+jobs:
+  build:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-build.yml@production
+    with:
+      deploy_stage: production
+      artifact_name: deployment-build-production
+      toolkit_repository: happy-horizon/actions
+    secrets: inherit
+```
+
+#### Inputs
+
+- `deploy_stage` (required): stage name from `deploy.settings.yml` (for example: `production`)
+- `deploy_image` (optional): explicit container image override
+- `deploy_image_fallback` (optional): fallback image if no override is found
+- `toolkit_repository` (optional): repository that contains `horizon-deploy/`, default `happy-horizon/actions`
+- `toolkit_ref` (optional): toolkit branch/tag, default `production`
+- `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
+- `artifact_name` (optional): artifact name; defaults to `deployment-build-<deploy_stage>`
+- `artifact_path` (optional): path to upload, default `build/build.tgz`
+- `artifact_retention_days` (optional): retention in days, default `7`
+
+#### Secrets
+
+- `SSH_PRIVATE_KEY` (required)
+- `DEPLOY_COMPOSER_AUTH` (optional)
+- `COMPOSER_PROCESS_TIMEOUT` (optional)
+- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`)
+
+---
+
 ### `horizon-backend-hypernode-deploy.yml`
 
 Reusable workflow for Magento backend deploys via `hypernode-deploy`.

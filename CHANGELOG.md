@@ -70,5 +70,6 @@
 *  fix(deploy): restore GH_TOKEN for private toolkit checkout *(Lewis Voncken)*
 *  fix(deploy): require GH_TOKEN for private toolkit checkout *(Lewis Voncken)*
 *  fix(deploy): restore GH_TOKEN fallback to GITHUB_TOKEN for toolkit checkout *(Lewis Voncken)*
+*  feat(build): add reusable Hypernode Magento build workflow *(Lewis Voncken)*
 
 
