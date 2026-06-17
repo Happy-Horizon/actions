@@ -70,7 +70,7 @@ jobs:
 - `COMPOSER_PROCESS_TIMEOUT` (optional)
 - `MAINTENANCE_IP_WHITELIST` (optional)
 - `HYPERNODE_API_TOKEN` (optional)
-- Toolkit checkout and cross-run artifact download use the caller's built-in `GITHUB_TOKEN` (`github.token`). Grant the deploy job `actions: read` in the caller workflow, and allow the caller repo to access the toolkit repo via org Actions access settings.
+- `GH_TOKEN` (optional, used to check out the private toolkit repo). Cross-run artifact download uses the built-in `GITHUB_TOKEN`, so the deploy job is granted `actions: read`.
 
 #### Outputs
 
