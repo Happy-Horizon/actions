@@ -96,9 +96,6 @@ on:
         required: false
       HYPERNODE_API_TOKEN:
         required: false
-      GH_TOKEN:
-        description: PAT to clone private toolkit repo and download cross-run artifacts (optional)
-        required: false
 
 jobs:
   deploy:
@@ -106,6 +103,9 @@ jobs:
       deployment_hostname: ${{ steps.report.outputs.hostname }}
       deployment_url: ${{ steps.report.outputs.url }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     environment:
       name: ${{ inputs.environment_name || inputs.deploy_stage }}
       url: ${{ inputs.environment_url }}
@@ -120,7 +120,7 @@ jobs:
           repository: ${{ inputs.toolkit_repository }}
           ref: ${{ inputs.toolkit_ref }}
           path: _horizon_deploy_toolkit
-          token: ${{ secrets.GH_TOKEN || github.token }}
+          token: ${{ github.token }}
 
       - name: Download build artifact
         if: inputs.artifact_name != ''
@@ -128,7 +128,7 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}
           path: build/
-          github-token: ${{ secrets.GH_TOKEN || github.token }}
+          github-token: ${{ github.token }}
           run-id: ${{ inputs.artifact_run_id }}
 
       - name: Resolve deploy image

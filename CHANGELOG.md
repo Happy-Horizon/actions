@@ -1,4 +1,4 @@
-##  (2026-06-10)
+##  (2026-06-17)
 
 [View Release](git@github.com:happy-horizon/actions.git/commits/tag/)
 
@@ -66,5 +66,6 @@
 *  docs: verwijder punt over codekwaliteit (was al zo in vorige aanpak) *(Lewis Voncken)*
 *  feat(nginx): skip recipe vhost task and make nginx sync authoritative *(Lewis Voncken)*
 *  docs: voeg Hypernode Brancher toe als volgende stap in deployment doc *(Lewis Voncken)*
+*  chore(deploy): use GITHUB_TOKEN for toolkit checkout *(Lewis Voncken)*
 
 
