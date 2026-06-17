@@ -70,7 +70,7 @@ jobs:
 - `COMPOSER_PROCESS_TIMEOUT` (optional)
 - `MAINTENANCE_IP_WHITELIST` (optional)
 - `HYPERNODE_API_TOKEN` (optional)
-- `GH_TOKEN` (optional, used to check out the private toolkit repo). Cross-run artifact download uses the built-in `GITHUB_TOKEN`, so the deploy job is granted `actions: read`.
+- `GH_TOKEN` (required when using `toolkit_repository`): PAT with **Contents: Read** on `happy-horizon/actions`. Cross-run artifact download uses the built-in `GITHUB_TOKEN`, so the deploy job is granted `actions: read`.
 
 #### Outputs
 

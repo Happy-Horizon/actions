@@ -68,5 +68,6 @@
 *  docs: voeg Hypernode Brancher toe als volgende stap in deployment doc *(Lewis Voncken)*
 *  chore(deploy): use GITHUB_TOKEN for toolkit checkout *(Lewis Voncken)*
 *  fix(deploy): restore GH_TOKEN for private toolkit checkout *(Lewis Voncken)*
+*  fix(deploy): require GH_TOKEN for private toolkit checkout *(Lewis Voncken)*
 
 
