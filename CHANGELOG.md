@@ -73,5 +73,6 @@
 *  feat(build): add reusable Hypernode Magento build workflow *(Lewis Voncken)*
 *  feat(preview): add reusable Hypernode preview environment workflow *(Lewis Voncken)*
 *  docs: add Jira summary for customer GitHub migration rollout *(Lewis Voncken)*
+*  docs: add customer-facing marketing text for GitHub migration *(Lewis Voncken)*
 
 
