@@ -75,5 +75,6 @@
 *  docs: add Jira summary for customer GitHub migration rollout *(Lewis Voncken)*
 *  docs: add customer-facing marketing text for GitHub migration *(Lewis Voncken)*
 *  docs: align marketing text with waarom-github-deployment.md *(Lewis Voncken)*
+*  docs: add 2-hour estimate to Jira ticket summary *(Lewis Voncken)*
 
 

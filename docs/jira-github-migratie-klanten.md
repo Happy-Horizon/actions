@@ -4,6 +4,8 @@
 
 Happy Horizon migreert klantprojecten van **Bitbucket + rsync-deploy** naar **GitHub Actions + Hypernode Deploy**, met gedeelde deploylogica in de centrale `actions`-repository. Dit levert atomische releases, snelle rollback, gescheiden build/deploy (zelfde build op staging én productie), en nginx/cron uit version control. De aanpak is uitgerold op Horizon Backend als referentie-implementatie; per klantproject volgt configuratie van repo, secrets, Hypernode-toegang en een gecontroleerde staging → productie cutover.
 
+**Inschatting:** ~2 uur technische migratie per standaard Magento-backend (mits repository-toegang, Hypernode-namen en secrets beschikbaar zijn). Zie "Inschatting" voor variaties en story points.
+
 **Epic-doel:** klanten veilig en reproduceerbaar deployen via GitHub, met één centrale toolkit voor onderhoud op schaal.
 
 ---
