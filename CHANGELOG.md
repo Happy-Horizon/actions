@@ -72,5 +72,6 @@
 *  fix(deploy): restore GH_TOKEN fallback to GITHUB_TOKEN for toolkit checkout *(Lewis Voncken)*
 *  feat(build): add reusable Hypernode Magento build workflow *(Lewis Voncken)*
 *  feat(preview): add reusable Hypernode preview environment workflow *(Lewis Voncken)*
+*  docs: add Jira summary for customer GitHub migration rollout *(Lewis Voncken)*
 
 
