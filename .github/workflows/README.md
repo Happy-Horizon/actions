@@ -42,6 +42,61 @@ jobs:
 
 ---
 
+### `horizon-backend-preview-environment.yml`
+
+Reusable workflow for per-PR preview environments (Hypernode Brancher / acceptance stage). **Disabled by default** — enable per project when ready.
+
+#### Disabled (current default)
+
+```yaml
+jobs:
+  preview:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-preview-environment.yml@production
+    with:
+      enabled: false
+    secrets: inherit
+```
+
+#### Coming-soon PR comment only
+
+```yaml
+jobs:
+  preview:
+    permissions:
+      pull-requests: write
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-preview-environment.yml@production
+    with:
+      enabled: true
+      post_coming_soon_notice: true
+    secrets: inherit
+```
+
+#### Full preview deploy (future)
+
+```yaml
+jobs:
+  preview:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-preview-environment.yml@production
+    with:
+      enabled: true
+      deploy_preview: true
+      toolkit_repository: happy-horizon/actions
+    secrets: inherit
+```
+
+#### Inputs
+
+- `enabled` (optional, default `false`): master switch for all preview jobs
+- `post_coming_soon_notice` (optional, default `true`): post informational PR comment when not deploying
+- `deploy_preview` (optional, default `false`): run acceptance/Brancher deploy via the Hypernode deploy workflow
+- `toolkit_repository` / `toolkit_ref` / `environment_name` (optional): passed through to preview deploy
+
+#### Outputs
+
+- `deployment_hostname` / `deployment_url`: from preview deploy when `deploy_preview: true`
+
+---
+
 ### `horizon-backend-hypernode-deploy.yml`
 
 Reusable workflow for Magento backend deploys via `hypernode-deploy`.

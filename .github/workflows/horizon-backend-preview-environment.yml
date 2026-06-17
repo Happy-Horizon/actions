@@ -1,0 +1,116 @@
+# Reusable Hypernode Magento preview / PR environment workflow.
+#
+# Disabled by default until Hypernode Brancher per-PR previews are enabled for a project.
+#
+# Coming-soon comment only:
+#
+#   jobs:
+#     preview:
+#       uses: happy-horizon/actions/.github/workflows/horizon-backend-preview-environment.yml@production
+#       with:
+#         enabled: true
+#         post_coming_soon_notice: true
+#       permissions:
+#         pull-requests: write
+#
+# Full acceptance/Brancher preview deploy (future):
+#
+#   jobs:
+#     preview:
+#       uses: happy-horizon/actions/.github/workflows/horizon-backend-preview-environment.yml@production
+#       with:
+#         enabled: true
+#         deploy_preview: true
+#         toolkit_repository: happy-horizon/actions
+#       secrets: inherit
+
+name: Reusable Hypernode Magento preview environment
+
+on:
+  workflow_call:
+    inputs:
+      enabled:
+        type: boolean
+        default: false
+        description: Master switch. Keep false until preview environments are active for this project.
+      post_coming_soon_notice:
+        type: boolean
+        default: true
+        description: Post a one-time informational PR comment while preview rollout is not yet active.
+      deploy_preview:
+        type: boolean
+        default: false
+        description: Deploy an acceptance/Brancher preview environment for the pull request.
+      toolkit_repository:
+        type: string
+        default: happy-horizon/actions
+      toolkit_ref:
+        type: string
+        default: production
+      environment_name:
+        type: string
+        default: acceptance
+    outputs:
+      deployment_hostname:
+        description: Hostname from deployment-report.json when preview deploy runs
+        value: ${{ jobs.preview-deploy.outputs.deployment_hostname }}
+      deployment_url:
+        description: Preview URL when preview deploy runs
+        value: ${{ jobs.preview-deploy.outputs.deployment_url }}
+    secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+      DEPLOY_COMPOSER_AUTH:
+        required: false
+      COMPOSER_PROCESS_TIMEOUT:
+        required: false
+      MAINTENANCE_IP_WHITELIST:
+        required: false
+      HYPERNODE_API_TOKEN:
+        required: false
+      GH_TOKEN:
+        required: false
+
+jobs:
+  coming-soon:
+    name: Preview environment (coming soon)
+    if: inputs.enabled && inputs.post_coming_soon_notice && !inputs.deploy_preview
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment PR with coming soon notice
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const alreadyPosted = comments.some((c) =>
+              c.user?.login === 'github-actions[bot]' &&
+              typeof c.body === 'string' &&
+              c.body.includes('Preview environments are coming soon'),
+            );
+            if (alreadyPosted) return;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🔜 **Preview environments are coming soon.**\n\nAutomatic per-PR acceptance servers (Hypernode Brancher) are planned but not yet active.',
+            });
+
+  preview-deploy:
+    name: Preview environment deploy
+    if: inputs.enabled && inputs.deploy_preview
+    uses: ./.github/workflows/horizon-backend-hypernode-deploy.yml
+    with:
+      deploy_stage: acceptance
+      enable_preview_environment: true
+      toolkit_repository: ${{ inputs.toolkit_repository }}
+      toolkit_ref: ${{ inputs.toolkit_ref }}
+      environment_name: ${{ inputs.environment_name }}
+    secrets: inherit
