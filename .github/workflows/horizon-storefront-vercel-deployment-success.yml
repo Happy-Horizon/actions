@@ -110,13 +110,23 @@ jobs:
       - name: Generate CSP Headers
         run: |
           vercel env pull .env.vercel --yes --environment=${VERCEL_ENV} --token=$VERCEL_TOKEN || vercel env pull .env.vercel --yes --environment=preview --token=$VERCEL_TOKEN
+          set -a
           source .env.vercel
-          url="https://trigger.happyhorizon.dev/csp_manage_fastly_header?FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}&FASTLY_API_KEY=${FASTLY_API_KEY}&SANSEC_ID=${SANSEC_ID}&CSP_STRICT=${CSP_STRICT}"
-          response=$(curl -sw "%{http_code}" $url)
-          status_code="${response:${#response}-3}"
-          body=""
-          if [ ${#response} -gt 3 ]; then body="${response:0:${#response}-3}"; else body=""; fi
-          if [[ "$status_code" -ne 200 ]]; then echo "$body"; pkill LT; fi
+          set +a
+          CSP_CUSTOM_CONFIG="$(
+            sed -n '/^CSP_CUSTOM_CONFIG=/ { s/^CSP_CUSTOM_CONFIG=[[:space:]]*//; p; q; }' .env.vercel \
+            | sed 's/^"\(.*\)"$/\1/' \
+            | sed 's/\\"/"/g'
+          )"
+          export CSP_CUSTOM_CONFIG
+          http_code=$(curl -sS -G "https://trigger.happyhorizon.dev/csp_manage_fastly_header" \
+            --data-urlencode "FASTLY_SERVICE_ID=${FASTLY_SERVICE_ID}" \
+            --data-urlencode "FASTLY_API_KEY=${FASTLY_API_KEY}" \
+            --data-urlencode "SANSEC_ID=${SANSEC_ID}" \
+            --data-urlencode "CSP_STRICT=${CSP_STRICT}" \
+            --data-urlencode "CSP_CUSTOM_CONFIG=${CSP_CUSTOM_CONFIG}" \
+            -o /tmp/csp_body -w '%{http_code}') || exit 1
+          if [ "$http_code" != "200" ]; then cat /tmp/csp_body; exit 1; fi
         env:
           VERCEL_ENV: ${{ needs.resolve-context.outputs.resolved_env }}
           VERCEL_PROJECT_ID: ${{ github.event.client_payload.project.id }}
