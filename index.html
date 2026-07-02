@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/github-markdown-css@5.5.0/github-markdown.min.css">
+    
+  <style>
+    /* Apply the markdown-body class to the output div for GitHub styling */
+    .markdown-body {
+      box-sizing: border-box;
+      margin: 0 auto;
+      padding: 45px;
+    }
+  </style>
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script>
+    // Existing Marker.io configuration
+    window.markerConfig = {
+      project: '6916f194b8cd864c292dd0f8', 
+      source: 'snippet'
+    };
+
+    !function(e,r,a){if(!e.__Marker){e.__Marker={};var t=[],n={__cs:t};["show","hide","isVisible","capture","cancelCapture","unload","reload","isExtensionInstalled","setReporter","clearReporter","setCustomData","on","off"].forEach(function(e){n[e]=function(){var r=Array.prototype.slice.call(arguments);r.unshift(e),t.push(r)}}),e.Marker=n;var s=r.createElement("script");s.async=1,s.src="https://edge.marker.io/latest/shim.js";var i=r.getElementsByTagName("script")[0];i.parentNode.insertBefore(s,i)}}(window,document);
+  </script>
+  
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f3f4f6;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      background-color: #ffffff;
+      padding: 2rem;
+      border-radius: 0.75rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      max-width: 28rem;
+      width: 100%;
+      margin: 2rem auto;
+      text-align: left;
+    }
+    .button {
+      background-color: #4f46e5;
+      color: white;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: background-color 0.3s ease;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+      margin-bottom: 1rem;
+    }
+    .button:last-child {
+      margin-bottom: 0;
+    }
+    .button:hover {
+      background-color: #4338ca;
+    }
+    .button.nan {
+      background: #52A52E;
+    }
+    .button.nan:hover {
+      background: #418424;
+    }
+    .button.wysiwyg {
+      background: #6578B4;
+    }
+    .button.wysiwyg:hover {
+      background: #506090;
+    }
+    .button.pink {
+      background: #D86199;
+    }
+    .button.pink:hover {
+      background: #ac4d7a;
+    }
+    .message {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-weight: 500;
+      word-wrap: break-word;
+      text-align: left;
+    }
+    .message.success {
+      background-color: #d1fae5;
+      color: #065f46;
+    }
+    .message.error {
+      background-color: #fee2e2;
+      color: #991b1b;
+    }
+    .loading-spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      border-left-color: #4f46e5;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    li {
+      list-style-type: disc;
+      margin-bottom: 0.5rem;
+      padding-left: 0.5rem;
+      color: #374151;
+      font-size: 1rem;
+      line-height: 1.5;
+    }
+    
+    a {
+      font-weight: bold;
+      text-decoration: underline !important;
+      color: #4787ed !important;
+      cursor: pointer;
+    }
+    a#olivierResourceLink {
+        color: #B91C1C !important;
+        text-decoration: none !important;
+        border-bottom: 2px dashed #B91C1C;
+        padding-bottom: 2px;
+    }
+    a#olivierResourceLink.loading {
+        pointer-events: none;
+        color: #1F2937 !important;
+        border-bottom-style: solid;
+        border-bottom-color: #1F2937;
+    }
+    a#olivierResourceLink:hover {
+        background-color: #FEE2E2;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+<div class="info">
+
+    <h1 class="text-3xl font-bold text-gray-800 mb-6">Cas Calendar Assistent</h1>
+    <p>Onderstaande scripts worden beheerd binnen Google Apps Script. Via <a href="https://script.google.com/home/projects/11NTAIZhRoBTUmxVgvuBsNeAFAkv2UoUozQIdsXuLp4GZKh8S3yoRFPkC">deze link</a> kun je het script inzien en toegang vragen om de app te beheren. Het script wordt beheerd vanuit het operations@... account, de backlog is te vinden binnen het <a href="https://ct-happyhorizon.atlassian.net/jira/software/c/projects/IN23/boards/873/backlog?issueParent=1562800">IN23 project in Jira</a>.</p>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Inplannen van pré-refinements / 1:1 sessies met klanten (voor devco's en PM)</h2>
+    <ul class="pl-6">
+      <li>Controleer of het <a href="https://docs.google.com/spreadsheets/d/1com3fQ9RDiQCLg_aOguyXvP6uNmd_oMkNU6OWLzR6Lg/edit?gid=1934088962#gid=1934088962%20" target="_blank">pr&eacute;-refinement schema</a> de juiste maand bevat (dit is in MM-DD-YYYY format)</li>
+      <li>Klik op de knop onder "Pascals Magic Calendar Sync"</li>
+      <li>Controleer of de events goed zijn aangemaakt en een ruimte hebben</li>
+      <li>Run <b>vanuit je eigen account </b> het script “inviteCustomerToDagstartEvents” (zie button)  om de klant uit te nodigen en een Jira-link toe te voegen</li>
+    </ul>
+
+  <hr class="mt-8">
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Uitgangspunten dagstarts plannen</h2>
+    <ul class="pl-6">
+      <li>Een dagstart wordt <b>altijd</b> gepland vanuit de operations agenda zodat de scripts kunnen worden gerund</li>
+      <li>Bij het plannen van een dagstart hoef je alleen de <b>klantnaam in de juiste syntax</b> op te nemen, waarna de klant en collega's automatisch worden uitgenodigd en de afspraak wordt voorzien van het juiste ticket-nummer</li>
+    </ul>    
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Voor wie moet ik een dagstart plannen?</h2>
+    <ul class="pl-6">
+      <li>Er wordt voor elke klant een dagstart gepland. In het planning-sheet bestaat <a href="https://docs.google.com/spreadsheets/d/1s3sKQF1ZOToYqUuRGWnem-7VcFk8meqQuwt1OoNeWPM/edit?gid=1219868596#gid=1219868596">een tabblad waarop te zien is voor welke klanten nog geen dagstart gepland</a> </li>
+      <li>Is er om wat voor reden geen dagstart nodig, geef dat dan aan in het tablad met klantnamen binnen het planningsheet. De klant wordt dan uit dit overzicht gefilterd</li>
+    </ul>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Dagstart placeholders inplannen</h2>
+    <p>De placeholders worden centraal toegevoegd aan de operations agenda. Daarbij worden de volgende scrips en functies uitgevoerd:</p>
+    <ul class="pl-6">
+      <li>Het script "EditEventPermissions" runt automatisch en stelt in dat iedereen de afspraak mag wijzigen</li>
+      <li>Het script "UpdateEventColours" runt automatisch en past de kleur aan in de kleur van het team</li>
+      <li>Het script UpdateRoom past op basis van de notering "Voorkeursruimte" binnen de naam van de afspraak de ruimte aan (indien beschikbaar)</li>
+    </ul>  
+
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Dagstart placeholders verzilveren en klanten uitnodigen</h2>
+    <p>Om de placeholders te verzilveren dien je het volgende uit te voeren:</p>
+    <ul class="pl-6">
+      <li><b>Pas altijd een bestaande placeholder aan wanneer die nog beschikbaar is</b>. In dat geval is er namelijk ook al een ruimte voor je gereserveerd.</li>
+      <li>Controleer op basis van <a href="https://docs.google.com/spreadsheets/d/1s3sKQF1ZOToYqUuRGWnem-7VcFk8meqQuwt1OoNeWPM/edit?gid=1561192297#gid=1561192297&amp;range=A58:AH58" target="_blank">op deze link</a> welke klant het meest ingepland staat</li>
+      <li>Controleer de inhoud van de afspraak en pas de naam aan in de naam van de klant. De naam van het event moet als volgt zijn: <b>Dagstart klantnaam-zoals-die-ook-in-het-planningsheet-staat</b></li>
+      <li>Klanten worden automatisch uitgenodigd voor een dagstart. Wil je hen handmatig uitnodigen, run <b>vanuit het operations account </b> het script “inviteCustomerToDagstartEvents” (zie button) om de klant uit te nodigen</li>
+    </ul>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Klanten uitnodigen voor handmatig aangemaakte events</h2>
+    <p>Ook wanneer je handmatig een event aanmaakt kun je met een druk op de knop een klant uitnodigen</p>
+    <ul class="pl-6">
+      <li>Maak het event aan. De naam van het event moet als volgt zijn: <b>Dagstart klantnaam-zoals-die-ook-in-het-planningsheet-staat</b></li>
+      <li>Run <b>vanuit je eigen account </b> het script “inviteCustomerToDagstartEvents” (zie button)  om de klant uit te nodigen en een Jira-link toe te voegen</li>
+      <li>Nodig collega's uit (er komt nog een functionaliteit om dit makkelijker uit te voeren)</li>
+    </ul>
+
+    <br>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Verwijdering van placeholders</h2>  
+    <p>Placeholders kun je tot <b>12 uur van tevoren</b> en worden daarna verwijderd. Dit gaat om evenementen met de volgende naam: </p>
+    <br>
+    <div>
+  "Dagstart placeholder I (voorkeurslocatie: Janskerkhof)",
+  "Dagstart placeholder II (voorkeurslocatie: Uithof)",
+  "Dagstart Pink | (voorkeurslocatie: Janskerkhof)",
+  "Dagstart Pink II (voorkeurslocatie: Uithof)",
+  "Dagstart placeholder I (voorkeurslocatie: Janskerkhof)",
+  "Dagstart NaN II (voorkeurslocatie: Munt)",
+  "Dagstart WYSIWYG I (voorkeurslocatie: Neude)",
+  "Dagstart WYSIWYG II (voorkeurslocatie: Munt)",
+  "Refinement placeholder (voorkeurslocatie: Janskerkhof)",
+  "Refinement Pink (voorkeurslocatie: Janskerkhof)"
+  </div>
+
+
+    <hr class="mt-8">
+
+    <h1 class="text-3xl font-bold text-gray-800 mb-6 mt-8"> Scripts en triggers </h1>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Klanten uitnodigen voor events</h2>
+
+    <p>Middels onderstaande button kun je de klant uitnodigen voor een dagstart of pré-refinement. De mapping tussen de te gebruiken klantnaam, e-mailadres(sen) van de klant in Jira-key is gecodeerd in het Google Apps script en kun je inzien door het script te bekijken.</p>
+
+<div class="mt-6 flex gap-4 flex-wrap">
+
+    <button id="pinkkInviteButton" class="button pink">
+      Invite Pink Customers
+    </button>
+
+    <button id="wysiwygwInviteButton" class="button wysiwyg">
+      Invite WYSIWYG Customers
+    </button>
+
+    <button id="nanInviteButton" class="button nan">
+      Invite NaN Customers
+    </button> 
+
+   <div id="messageArea" class="message hidden"></div>
+</div>
+
+    <h2 class="text-2xl font-bold text-gray-800 mb-6 mt-8">Overige events</h2>
+    <p>De logica werkt niet alleen voor dagstarts, maar ook voor een sprintplanning en een sprintsluit. Dat betekent het volgende:</p>
+    <ul class="pl-6">
+      <li>Bij de naam "Dagstart klantnaam-zoals-die-ook-in-het-planningsheet-staat" wordt een ticket-nummer toegevoegd, wordt de klant uitgenodigd en worden collega's die die dag ingepland staan uitgenodigd. Collega's die niet staan ingepland worden uit de afspraak verwijderd.</li>
+      <li>Bij de naam "Sprintplanning klantnaam-zoals-die-ook-in-het-planningsheet-staat" worden collega's die die dag ingepland staan uitgenodigd. Collega's die niet staan ingepland worden uit de afspraak verwijderd.</li>
+      <li>Bij de naam "Sprintsluit klantnaam-zoals-die-ook-in-het-planningsheet-staat" worden collega's die die dag ingepland staan uitgenodigd. Collega's die niet staan ingepland worden uit de afspraak verwijderd.</li>
+      <li>Bij de naam "Refinement" wordt er geen actie uitgevoerd omdat daarbij soms ook collega's die deze dag niet ingepland staan moeten worden uitgenodigd.</li>
+    </ul>
+
+</div>
+
+<div class="info">
+  
+<h1 class="text-3xl font-bold text-gray-800 mb-6 mt-8"> Veelgestelde vragen </h1>  
+
+<div id="markdown-source-test" style="display:none;">
+
+  ## Werking
+
+  ### Waar kijk ik naar?
+  Je kijkt naar de index.hmtl pagina van onze Calendar Assistent. Dit project wordt beheerd in [Google Apps](https://script.google.com/home/projects/11NTAIZhRoBTUmxVgvuBsNeAFAkv2UoUozQIdsXuLp4GZKh8S3yoRFPkC) en bestaat uit diverse Google Apps scripts. De index.html toont een aantal buttons om deze scripts uit te voeren.
+
+  ### Wanneer moet ik de buttons gebruiken?
+  Je moet de buttons gebruiken wanneer je een afspraak inplant in je **eigen agenda**. De actie wordt automatisch uitgevoerd voor de operations@utrecht.happyhorizon.com agenda.
+
+  ### Er worden geen Google Meets links toegevoegd aan mijn afspraken?
+  Controleer of operations@utrecht.happyhorizon.com de rechten heeft om jouw agenda te wijzigen.
+    
+  ## Mapping
+
+  ### Waar wordt bepaald welke klant wordt uitgenodigd voor een afspraak?
+  Deze mapping wordt bepaald binnen de functie die wordt aangeroepen. Binnen de edit-pagina van CAS kun je de mapping inzien en aanpassen.    
+
+  ### Hoe wordt er een Google Meets link toegevoegd aan een afspraak?
+  Een Google Meets link wordt toegevoegd op basis van het addMeetLinksToEvents script. Deze taak runt periodiek.
+
+  ## Hoe voeg ik een wijziging in de mapping door?
+  Dit kun je zelf doen binnen de applicatie (het is een json-mapping), maar je kunt ook de button rechts gebruiken. Er wordt dan een ticket aangemaakt binnen het IN23 project.
+
+
+  ### Wanneer moet ik de buttons gebruiken?
+
+  In principe heb je de buttons niet nodig omdat diverse scripts automatisch worden uitgevoerd:
+
+  - Het script "AddBasicInfo" roept de scripts "EditEventPermissions", "UpdateRoom" en "addMeetLinksToFilteredEvents" aan. Dit script wordt elke vier uur gerund ordt gerund bij een wijziging in de operations-agenda.
+  - Het script om klanten uit te nodigen wordt elke vier uur gerund, wordt gerund bij een wijziging in de operations-agenda én wordt gerund bij een wijziging in de agenda van een devco. Bij de uitvoer van dit script wordt er alleen gekeken naar de agenda waarin de wijziging heeft plaatsgevonden.
+
+  Je kunt de buttons gebruiken om handmatig de scripts te runnen, maar dit zou niet nodig moeten zijn.
+
+  ## Klant-specifieke logica
+
+  ### Mijn klant wil graag een dagstart op een ander tijdstip, kan dat?
+  Een dagstart wordt standaard om 09:00 uur of 09:30 uur ingepland, maar middels de functie `UpdatePreferredClientEventStartTime` kan deze worden aangepast.
+
+</div>
+    
+<div id="html-output-test" class="markdown-body"></div>
+
+</div>
+
+</div>
+
+<script>
+    // Get references to the buttons, link, and message area
+    const pinkkInviteButton = document.getElementById('pinkkInviteButton');
+    const wysiwygwInviteButton = document.getElementById('wysiwygwInviteButton');
+    const nanInviteButton = document.getElementById('nanInviteButton');
+    const olivierResourceLink = document.getElementById('olivierResourceLink');
+    const messageArea = document.getElementById('messageArea');
+
+    /**
+     * Displays a message in the message area.
+     * @param {string} message The message to display.
+     * @param {string} type The type of message ('success' or 'error').
+     */
+    function showMessage(message, type) {
+      messageArea.textContent = message;
+      messageArea.className = `message ${type}`; 
+      messageArea.classList.remove('hidden');
+    }
+
+    /**
+     * Resets the element state after a call.
+     * @param {HTMLElement} element The element to reset (button or link).
+     * @param {string} originalText The original text of the element.
+     */
+    function resetElementState(element, originalText) {
+      if (element.tagName === 'BUTTON') {
+        element.disabled = false;
+        element.innerHTML = originalText;
+      } else if (element.tagName === 'A') {
+        element.classList.remove('loading');
+        element.textContent = originalText;
+      }
+    }
+
+    /**
+     * Handles the successful response from the server-side function.
+     * @param {string} result The success message from the server.
+     * @param {HTMLElement} element The element that triggered the action.
+     * @param {string} originalText The original text of the element.
+     */
+    function onSuccess(result, element, originalText) {
+      resetElementState(element, originalText);
+      showMessage(result, 'success');
+    }
+
+    /**
+     * Handles errors from the server-side function.
+     * @param {Error} error The error object.
+     * @param {HTMLElement} element The element that triggered the action.
+     * @param {string} originalText The original text of the element.
+     */
+    function onError(error, element, originalText) {
+      resetElementState(element, originalText);
+      showMessage(`Error: ${error.message}`, 'error');
+      console.error('Google Apps Script Error:', error);
+    }
+
+    /**
+     * Generic function to handle element clicks and call the Apps Script function.
+     * @param {HTMLElement} element The element that was clicked.
+     * @param {string} functionName The name of the Google Apps Script function to call.
+     * @param {string} loadingText The text to show while loading.
+     * @param {string} originalText The original text of the element.
+     */
+    function handleScriptClick(element, functionName, loadingText, originalText) {
+      messageArea.classList.add('hidden'); // Hide previous message
+
+      if (element.tagName === 'BUTTON') {
+        element.disabled = true;
+        element.innerHTML = `<span class="loading-spinner"></span> ${loadingText}`;
+      } else if (element.tagName === 'A') {
+        element.classList.add('loading');
+        element.textContent = `${loadingText}`;
+      }
+
+      // Call the Google Apps Script function
+      google.script.run
+        .withSuccessHandler((result) => onSuccess(result, element, originalText))
+        .withFailureHandler((error) => onError(error, element, originalText))
+        [functionName](); // Dynamically call the function
+    }
+
+    // --- Apps Script Button/Link Event Listeners ---
+    pinkkInviteButton.addEventListener('click', () => {
+      handleScriptClick(pinkkInviteButton, 'invitePinkkCustomerToDagstartEvents', 'Inviting Pink...', 'Invite Pink Customers');
+    });
+
+    wysiwygwInviteButton.addEventListener('click', () => {
+      handleScriptClick(wysiwygwInviteButton, 'inviteWysiwygCustomerToDagstartEvents', 'Inviting WYSIWYG...', 'Invite WYSIWYG Customers');
+   });
+
+    nanInviteButton.addEventListener('click', () => {
+      handleScriptClick(nanInviteButton, 'inviteNanCustomerToDagstartEvents', 'Inviting NaN...', 'Invite NaN Customers');
+   });
+
+    if (olivierResourceLink) {
+      olivierResourceLink.addEventListener('click', (event) => {
+        event.preventDefault();
+        const originalText = olivierResourceLink.textContent;
+        handleScriptClick(olivierResourceLink, 'inviteResourceOlivierForMavarickAndWYSIWYG', 'Running...', originalText);
+      });
+    }
+    
+    // --- Markdown-it Rendering Logic ---
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        
+        const markdownBlocks = [
+            { sourceId: 'markdown-source-test', outputId: 'html-output-test' }
+        ];
+
+        if (typeof window.markdownit === 'undefined') {
+            console.error("markdown-it library failed to load. Markdown content will not render.");
+            return;
+        }
+
+        const md = window.markdownit({ 
+            html: true,
+            linkify: true,
+            breaks: true
+        });
+
+        markdownBlocks.forEach(block => {
+            const sourceElement = document.getElementById(block.sourceId);
+            const outputElement = document.getElementById(block.outputId);
+
+            if (sourceElement && outputElement) {
+                const markdownSource = sourceElement.textContent;
+                outputElement.innerHTML = md.render(markdownSource.trim());
+            } else {
+                console.warn(`Markdown elements not found for ID set: ${block.sourceId} / ${block.outputId}`);
+            }
+        });
+    });
+
+</script>
+  
+</body>
+</html>
