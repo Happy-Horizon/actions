@@ -428,10 +428,12 @@ final class Bootstrap
             if (!is_array($row) || !isset($row['name'], $row['value'])) {
                 continue;
             }
+            // php_version belongs on setPhpVersion() (Deployer binary), not as a
+            // platform setting — re-applying it every deploy is unnecessary and brittle.
+            if ((string) $row['name'] === 'php_version') {
+                continue;
+            }
             $platform[] = new HypernodeSettingConfiguration((string) $row['name'], (string) $row['value']);
-        }
-        if ($platform === [] && isset($defaults['php_version']) && is_string($defaults['php_version']) && $defaults['php_version'] !== '') {
-            $platform[] = new HypernodeSettingConfiguration('php_version', $defaults['php_version']);
         }
 
         $cronConfig = $defaults['cron_config'] ?? null;
