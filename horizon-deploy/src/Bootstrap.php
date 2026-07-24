@@ -125,25 +125,6 @@ final class Bootstrap
             run('cd {{release_or_current_path}} && {{bin/composer}} dump-autoload --optimize --apcu 2>&1');
         });
 
-        desc('Sets Magento performance configuration for production (CSS/JS/sign/translate)');
-        task('magento:performance:config', function () {
-            $configs = [
-                'dev/static/sign'                   => '1',
-                'dev/css/merge_css_files'            => '1',
-                'dev/css/minify_files'               => '1',
-                'dev/js/enable_js_bundling'          => '0',
-                'dev/js/merge_files'                 => '0',
-                'dev/js/minify_files'                => '0',
-                'dev/js/move_script_to_bottom'       => '1',
-                'dev/translate_inline/active'        => '0',
-                'dev/translate_inline/active_admin'  => '0',
-            ];
-
-            foreach ($configs as $path => $value) {
-                run("{{bin/php}} {{release_or_current_path}}/{{magento_dir}}/bin/magento config:set {$path} {$value}");
-            }
-        });
-
         desc('Enables all Magento caches');
         task('magento:cache:enable', function () {
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento cache:enable; fi");
