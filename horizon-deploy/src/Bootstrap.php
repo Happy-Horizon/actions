@@ -77,6 +77,18 @@ final class Bootstrap
 
     private static function registerDeployerTasks(): void
     {
+        desc('Installs or updates ~/.hypernode/brancher-install-hook from the project repository');
+        task('hypernode:install_brancher_hook', function () {
+            $hookSource = '{{release_path}}/.hypernode/brancher-install-hook';
+            $hookDest   = '~/.hypernode/brancher-install-hook';
+
+            run("if [ ! -f {$hookSource} ]; then echo 'brancher-install-hook not found in release – skipping.'; exit 0; fi");
+            run("mkdir -p ~/.hypernode");
+            run("cp {$hookSource} {$hookDest}");
+            run("chmod +x {$hookDest}");
+            run("echo 'brancher-install-hook installed at {$hookDest}'");
+        });
+
         desc('Enables maintenance mode');
         task('magento:maintenance:enable', function () {
             try {
