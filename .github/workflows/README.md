@@ -218,6 +218,37 @@ Call directly from a project workflow when needed (e.g. a local DI-compile job):
 Requires the same `SSH_PRIVATE_KEY` repo secret as Hypernode deploys, with read
 access to any private Git Composer sources (Hyvä GitLab, etc.).
 
+---
+
+### `horizon-backend-magento-ci.yml`
+
+Reusable Magento backend CI. Jobs:
+
+- **Static Code Scans** — Experius testsuite static scans
+- **Magento DI compile** — `setup:di:compile` with a throwaway `env.php` (no DB), to catch DI fatals before Hypernode build
+
+```yaml
+jobs:
+  magento-ci:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
+    with:
+      php_version: '8.4'
+      # run_di_compile: false  # optional opt-out
+    secrets: inherit
+```
+
+#### Inputs
+
+- `php_version` (optional, default `8.2`)
+- `php_extensions` (optional)
+- `scan_path` (optional, default `app/code`)
+- `run_di_compile` (optional, default `true`)
+
+#### Secrets
+
+- `SSH_PRIVATE_KEY` (optional; required for private Git Composer deps)
+- `DEPLOY_COMPOSER_AUTH` (optional)
+
 ## Conventions
 
 - Keep workflows reusable-first where possible.

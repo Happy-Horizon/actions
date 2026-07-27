@@ -21,12 +21,18 @@ on:
         description: PHP version to use for the CI jobs
       php_extensions:
         type: string
-        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql
+        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql, xsl, sockets
         description: PHP extensions to install
       scan_path:
         type: string
         default: app/code
         description: Path passed to the static scan script (relative to repo root)
+      run_di_compile:
+        type: boolean
+        default: true
+        description: >
+          Run setup:di:compile with a throwaway env.php (no DB) to catch DI fatals
+          before Hypernode build.
     secrets:
       SSH_PRIVATE_KEY:
         required: false
@@ -69,3 +75,109 @@ jobs:
 
       - name: Run static code scans
         run: bash ./vendor/experius/module-testsuite/Test/static/run.sh ${{ inputs.scan_path }}
+
+  # Catches Symfony Command::execute(): int incompatibilities (and other DI fatals)
+  # before Hypernode build runs magento:compile. Requires a throwaway env.php; no DB needed.
+  di-compile:
+    name: Magento DI compile
+    if: ${{ inputs.run_di_compile }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.php_extensions }}
+          coverage: none
+          ini-values: memory_limit=2G
+
+      - name: Setup SSH for private Composer Git repos
+        uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-di-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-di-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+        env:
+          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          COMPOSER_PROCESS_TIMEOUT: 0
+          COMPOSER_NO_INTERACTION: 1
+          COMPOSER_NO_AUDIT: 1
+
+      - name: Create minimal env.php for compile
+        run: |
+          cat > app/etc/env.php <<'PHP'
+          <?php
+          return [
+              'backend' => ['frontName' => 'admin'],
+              'crypt' => ['key' => '00000000000000000000000000000000'],
+              'db' => [
+                  'table_prefix' => '',
+                  'connection' => [
+                      'default' => [
+                          'host' => '127.0.0.1',
+                          'dbname' => 'magento',
+                          'username' => 'magento',
+                          'password' => 'magento',
+                          'model' => 'mysql4',
+                          'engine' => 'innodb',
+                          'initStatements' => 'SET NAMES utf8;',
+                          'active' => '1',
+                      ],
+                  ],
+              ],
+              'resource' => ['default_setup' => ['connection' => 'default']],
+              'x-frame-options' => 'SAMEORIGIN',
+              'MAGE_MODE' => 'production',
+              'session' => ['save' => 'files'],
+              'cache' => [
+                  'frontend' => [
+                      'default' => ['id_prefix' => 'ci_'],
+                      'page_cache' => ['id_prefix' => 'ci_'],
+                  ],
+              ],
+              'lock' => ['provider' => 'db', 'config' => ['prefix' => '']],
+              'cache_types' => [
+                  'config' => 1,
+                  'layout' => 1,
+                  'block_html' => 1,
+                  'collections' => 1,
+                  'reflection' => 1,
+                  'db_ddl' => 1,
+                  'compiled_config' => 1,
+                  'eav' => 1,
+                  'customer_notification' => 1,
+                  'config_integration' => 1,
+                  'config_integration_api' => 1,
+                  'full_page' => 1,
+                  'config_webservice' => 1,
+                  'translate' => 1,
+              ],
+              'install' => ['date' => 'Thu, 01 Jan 1970 00:00:00 +0000'],
+          ];
+          PHP
+
+      - name: Run setup:di:compile
+        run: |
+          set -euo pipefail
+          # Bootstrap may warn about missing DB; compile itself does not need a live database.
+          # Fail hard on PHP fatals (e.g. Command::execute() missing ": int" under Symfony 7).
+          MAGE_MODE=production php -d memory_limit=2G bin/magento setup:di:compile 2>&1 | tee di-compile.log
+          grep -q 'Generated code and dependency injection configuration successfully' di-compile.log
+          test -d generated/code
+          test -d generated/metadata
