@@ -28,6 +28,9 @@ on:
         default: app/code
         description: Path passed to the static scan script (relative to repo root)
     secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+        description: Same key as Hypernode deploys; needed to clone private Git Composer repos (e.g. gitlab.hyva.io)
       DEPLOY_COMPOSER_AUTH:
         required: false
 
@@ -45,6 +48,12 @@ jobs:
           php-version: ${{ inputs.php_version }}
           extensions: ${{ inputs.php_extensions }}
           coverage: none
+
+      - name: Setup SSH for private Composer Git repos
+        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+        uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Cache Composer dependencies
         uses: actions/cache@v4

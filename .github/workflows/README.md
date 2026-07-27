@@ -196,6 +196,28 @@ Reusable/publish workflow related to Horizon storefront npm release operations.
 
 Repository-dispatch trigger workflow for Vercel deployment events.
 
+## Composite actions
+
+### `setup-composer-ssh`
+
+Installs `SSH_PRIVATE_KEY` (raw PEM or base64) and trusts hosts so Composer can
+clone private Git repositories (`gitlab.hyva.io`, `github.com` by default).
+
+Used automatically before `composer install` in:
+- `horizon-backend-magento-ci.yml`
+- `horizon-backend-magento-integration-tests.yml`
+
+Call directly from a project workflow when needed (e.g. a local DI-compile job):
+
+```yaml
+- uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+  with:
+    ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+```
+
+Requires the same `SSH_PRIVATE_KEY` repo secret as Hypernode deploys, with read
+access to any private Git Composer sources (Hyvä GitLab, etc.).
+
 ## Conventions
 
 - Keep workflows reusable-first where possible.

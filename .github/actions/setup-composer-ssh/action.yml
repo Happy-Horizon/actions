@@ -1,0 +1,44 @@
+name: Setup SSH for Composer Git repos
+description: >
+  Install SSH_PRIVATE_KEY (raw or base64) and trust hosts so Composer can
+  clone private Git repositories (e.g. gitlab.hyva.io, github.com).
+
+inputs:
+  ssh-private-key:
+    description: Private key (PEM or base64-encoded PEM), same as Hypernode SSH_PRIVATE_KEY
+    required: true
+  hosts:
+    description: Space-separated SSH hosts to add via ssh-keyscan
+    required: false
+    default: gitlab.hyva.io github.com
+
+runs:
+  using: composite
+  steps:
+    - name: Configure SSH key and known_hosts
+      shell: bash
+      env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-private-key }}
+        SSH_HOSTS: ${{ inputs.hosts }}
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        KEY_FILE="$HOME/.ssh/id_rsa"
+        # Match hypernode-deploy: SSH_PRIVATE_KEY is usually base64-encoded.
+        if printf '%s' "$SSH_PRIVATE_KEY" | grep -qE 'BEGIN (OPENSSH|RSA) PRIVATE KEY'; then
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_FILE"
+        else
+          printf '%s' "$SSH_PRIVATE_KEY" | tr -d '\r\n' | base64 -d > "$KEY_FILE"
+        fi
+        # OpenSSH requires a trailing newline on the key file.
+        [ -n "$(tail -c1 "$KEY_FILE" || true)" ] && printf '\n' >> "$KEY_FILE"
+        chmod 600 "$KEY_FILE"
+        # shellcheck disable=SC2086
+        ssh-keyscan -H $SSH_HOSTS >> ~/.ssh/known_hosts 2>/dev/null
+        {
+          echo "Host $SSH_HOSTS"
+          echo "  IdentityFile $KEY_FILE"
+          echo "  IdentitiesOnly yes"
+        } >> ~/.ssh/config
+        chmod 600 ~/.ssh/config
