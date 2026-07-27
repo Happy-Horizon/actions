@@ -1,20 +1,21 @@
 # Horizon Hypernode deploy toolkit
 
-Central Magento 2 deploy configuration for [Hypernode Deploy](https://docs.hypernode.com/hypernode-deploy/applications/config-for-magento-2.html). The PHP runtime lives here; each application repo adds a thin `deploy.php` plus **`deploy.settings.yml`** with **environments** (and optional **defaults** overrides).
+Central Magento 2 deploy configuration for [Hypernode Deploy](https://docs.hypernode.com/hypernode-deploy/applications/config-for-magento-2.html). The PHP runtime lives here; each application repo keeps **`deploy.settings.yml`**. CI installs **`deploy.php`** at the Magento project root from this toolkit.
 
 ## Files in this toolkit
 
 | Path | Purpose |
 |------|---------|
+| `deploy.php` | Thin Hypernode entry; copied to the Magento project root by reusable workflows. |
 | `bootstrap.php` | Loads `src/Bootstrap.php` (entry used by `deploy.php`). |
 | `src/Bootstrap.php` | Builds `Hypernode\DeployConfiguration\Configuration` from YAML/JSON. |
 | `defaults/magento2.yml` | Shared defaults (tasks, shared paths, deploy excludes, variables, …). |
 
 ## Quick setup in a new project
 
-1. Copy **`horizon-deploy/`** (or depend on a central repo checkout) and the root **`deploy.php`** stub into the Magento project root.
-2. Add **`deploy.settings.yml`** with at least one **`environments`** entry (see below).
-3. Run deploy with the same stage name as in YAML, e.g. `hypernode-deploy deploy staging`.
+1. Depend on the central checkout (`happy-horizon/actions` → `horizon-deploy/`) via the reusable GitHub workflows, **or** copy **`horizon-deploy/`** into the Magento project for local use.
+2. Add **`deploy.settings.yml`** with at least one **`environments`** entry (see below). Do **not** commit `deploy.php` — CI copies it from this toolkit to the project root.
+3. Run deploy with the same stage name as in YAML, e.g. `hypernode-deploy deploy staging` (after copying `deploy.php` to the project root for local runs).
 4. In CI, set **`DEPLOY_CONFIG_STAGE`** to that stage when you use flags or wrappers that hide the stage from argv (recommended in GitHub Actions).
 
 Optional:

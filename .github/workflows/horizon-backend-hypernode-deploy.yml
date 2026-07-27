@@ -51,7 +51,7 @@ on:
       toolkit_repository:
         type: string
         description: Repo that contains horizon-deploy/ (leave empty to use only the calling repo)
-        default: ""
+        default: happy-horizon/actions
       toolkit_ref:
         type: string
         default: production
@@ -124,6 +124,21 @@ jobs:
           path: _horizon_deploy_toolkit
           token: ${{ secrets.GH_TOKEN || github.token }}
 
+      - name: Install deploy.php at project root
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.toolkit_repository }}" ]; then
+            SRC="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          else
+            SRC="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "deploy.php not found in toolkit at ${SRC}"
+            exit 1
+          fi
+          cp "$SRC" "${GITHUB_WORKSPACE}/deploy.php"
+          echo "Installed deploy.php from ${SRC}"
+
       - name: Download build artifact from Hypernode
         if: inputs.artifact_name != ''
         env:
@@ -192,11 +207,16 @@ jobs:
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
-          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          # Paths must be container paths: workspace is mounted at /build.
+          BOOT="/build/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="/build/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
           if [ -n "${{ inputs.toolkit_repository }}" ]; then
-            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+            BOOT="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          if [ ! -f "${GITHUB_WORKSPACE}${BOOT#/build}" ]; then
+            echo "horizon-deploy bootstrap not found at ${BOOT} (host: ${GITHUB_WORKSPACE}${BOOT#/build})"
+            exit 1
           fi
           export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
           export HORIZON_DEPLOY_DEFAULTS="$DEF"
@@ -224,11 +244,16 @@ jobs:
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
-          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          # Paths must be container paths: workspace is mounted at /build.
+          BOOT="/build/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="/build/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
           if [ -n "${{ inputs.toolkit_repository }}" ]; then
-            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+            BOOT="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          if [ ! -f "${GITHUB_WORKSPACE}${BOOT#/build}" ]; then
+            echo "horizon-deploy bootstrap not found at ${BOOT} (host: ${GITHUB_WORKSPACE}${BOOT#/build})"
+            exit 1
           fi
           export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
           export HORIZON_DEPLOY_DEFAULTS="$DEF"

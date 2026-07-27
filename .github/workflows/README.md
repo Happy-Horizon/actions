@@ -149,7 +149,7 @@ the latest build is available for promotion.
 - `deploy_stage` (required): target stage name from `deploy.settings.yml` (for example: `staging`, `production`, `acceptance`)
 - `deploy_image` (optional): explicit container image override
 - `deploy_image_fallback` (optional): fallback image if no override is found
-- `toolkit_repository` (optional): repository that contains `horizon-deploy/`
+- `toolkit_repository` (optional): repository that contains `horizon-deploy/`, default `happy-horizon/actions`
 - `toolkit_ref` (optional): toolkit branch/tag, default `production`
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
 - `artifact_name` (optional): basename of the Hypernode build under `/data/web/builds/<name>.tgz`
@@ -260,3 +260,4 @@ jobs:
 
 - Magento deploy settings are expected in project `deploy.settings.yml`.
 - Shared deploy defaults/tooling are in `horizon-deploy/` (typically in this `actions` repo).
+- Reusable build/deploy workflows check out that toolkit and copy `horizon-deploy/deploy.php` to the Magento project root before running `hypernode-deploy`.

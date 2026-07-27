@@ -24,7 +24,8 @@
 #  10. Runs setup-shared-symlinks --dry-run for each environment
 #
 # Note: deploy.php and horizon-deploy/ are NOT created in the target repo. The
-# reusable deploy workflow checks out happy-horizon/actions at CI runtime.
+# reusable deploy workflow checks out happy-horizon/actions at CI runtime and
+# copies horizon-deploy/deploy.php to the Magento project root.
 #
 # Examples:
 #   bin/prepare-github-migration ../horizon-backend
