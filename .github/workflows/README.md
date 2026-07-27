@@ -6,7 +6,9 @@ This directory contains reusable and project-level GitHub Actions workflows used
 
 ### `horizon-backend-hypernode-build.yml`
 
-Reusable workflow for Magento backend builds via `hypernode-deploy`. Uploads `build/build.tgz` as a workflow artifact for later deploy promotion.
+Reusable workflow for Magento backend builds via `hypernode-deploy`. Uploads `build/build.tgz` to the stage Hypernode at `/data/web/builds/<artifact_name>.tgz` (atomic overwrite; only the latest build is kept).
+
+Host is taken from `environments.<deploy_stage>.servers[0].hostname` in `deploy.settings.yml`.
 
 #### Basic usage
 
@@ -29,9 +31,8 @@ jobs:
 - `toolkit_repository` (optional): repository that contains `horizon-deploy/`, default `happy-horizon/actions`
 - `toolkit_ref` (optional): toolkit branch/tag, default `production`
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
-- `artifact_name` (optional): artifact name; defaults to `deployment-build-<deploy_stage>`
-- `artifact_path` (optional): path to upload, default `build/build.tgz`
-- `artifact_retention_days` (optional): retention in days, default `7`
+- `artifact_name` (optional): remote basename under `/data/web/builds/`; defaults to `deployment-build-<deploy_stage>`
+- `artifact_path` (optional): local path to upload, default `build/build.tgz`
 
 #### Secrets
 
@@ -123,31 +124,25 @@ jobs:
 ```yaml
 on:
   workflow_dispatch:
-    inputs:
-      run_id:
-        required: true
-        type: string
 
 jobs:
   deploy:
     permissions:
       contents: read
-      # write: reusable workflow prunes old build artifacts after a successful deploy
-      actions: write
     concurrency: production
     uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
     with:
       deploy_stage: production
       artifact_name: deployment-build-production
-      artifact_run_id: ${{ inputs.run_id }}
       toolkit_repository: happy-horizon/actions
       environment_name: production
     secrets: inherit
 ```
 
-When `artifact_name` is set, a follow-up job keeps only the artifact from the
-deployed build run (falls back to the newest) and deletes older artifacts with
-the same name. Callers must grant `actions: write` for that prune step.
+When `artifact_name` is set, the workflow downloads the latest
+`/data/web/builds/<artifact_name>.tgz` from the stage Hypernode into
+`build/build.tgz` before deploying. Builds overwrite that single file, so only
+the latest build is available for promotion.
 
 #### Inputs
 
@@ -157,8 +152,7 @@ the same name. Callers must grant `actions: write` for that prune step.
 - `toolkit_repository` (optional): repository that contains `horizon-deploy/`
 - `toolkit_ref` (optional): toolkit branch/tag, default `production`
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
-- `artifact_name` (optional): artifact name to download into `build/`
-- `artifact_run_id` (optional): run ID used for artifact download
+- `artifact_name` (optional): basename of the Hypernode build under `/data/web/builds/<name>.tgz`
 - `enable_preview_environment` (optional, default `false`): opt-in switch for `acceptance`/Brancher preview deployments
 - `environment_name` / `environment_url` (optional): caller-level metadata only if you decide to pass it
 
@@ -169,7 +163,7 @@ the same name. Callers must grant `actions: write` for that prune step.
 - `COMPOSER_PROCESS_TIMEOUT` (optional)
 - `MAINTENANCE_IP_WHITELIST` (optional)
 - `HYPERNODE_API_TOKEN` (optional)
-- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`). Cross-run artifact download uses the built-in `GITHUB_TOKEN` (`actions: read` on the deploy job). When `artifact_name` is set, a cleanup job also needs `actions: write` from the caller to delete older artifacts.
+- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`)
 
 #### Outputs
 

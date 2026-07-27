@@ -10,24 +10,22 @@
 #         toolkit_repository: happy-horizon/actions
 #       secrets: inherit
 #
-# For production with a pre-built artifact:
+# For production with a pre-built artifact (latest on Hypernode):
 #
 #   jobs:
 #     deploy:
 #       permissions:
 #         contents: read
-#         actions: write   # required: prunes older artifacts after deploy
 #       uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
 #       with:
 #         deploy_stage: production
 #         artifact_name: deployment-build-production
-#         artifact_run_id: ${{ inputs.run_id }}
 #         toolkit_repository: happy-horizon/actions
 #         environment_name: production
 #       secrets: inherit
 #
-# When artifact_name is set, a cleanup job keeps only the deployed run's
-# artifact (fallback: newest) and deletes older ones with the same name.
+# When artifact_name is set, downloads /data/web/builds/<artifact_name>.tgz
+# from the stage Hypernode (always the latest overwritten build).
 #
 # deploy.settings.yml + layering docs: horizon-deploy/README.md
 
@@ -65,13 +63,9 @@ on:
         type: string
         default: ""
         description: >
-          Name of a pre-built artifact to download before deploying. When set, the artifact
-          is downloaded into build/ using artifact_run_id as the source run. Intended for
-          production promotion flows where build and deploy are separate workflow runs.
-      artifact_run_id:
-        type: string
-        default: ""
-        description: Workflow run ID to download the artifact from (required when artifact_name is set)
+          Basename of a pre-built artifact on the Hypernode (/data/web/builds/<name>.tgz).
+          When set, downloads that latest tarball into build/build.tgz before deploying.
+          Intended for production promotion flows where build and deploy are separate runs.
       enable_preview_environment:
         type: boolean
         default: false
@@ -103,7 +97,7 @@ on:
       HYPERNODE_API_TOKEN:
         required: false
       GH_TOKEN:
-        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset. Cross-run artifact download uses GITHUB_TOKEN with actions:read.
+        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset.
         required: false
 
 jobs:
@@ -114,7 +108,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
     environment:
       name: ${{ inputs.environment_name || inputs.deploy_stage }}
       url: ${{ inputs.environment_url }}
@@ -131,14 +124,34 @@ jobs:
           path: _horizon_deploy_toolkit
           token: ${{ secrets.GH_TOKEN || github.token }}
 
-      - name: Download build artifact
+      - name: Download build artifact from Hypernode
         if: inputs.artifact_name != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: build/
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.artifact_run_id }}
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          STAGE: ${{ inputs.deploy_stage }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+
+          HOST=$(ruby -ryaml -e "d=YAML.load_file('deploy.settings.yml') rescue {}; v=d.dig('environments', ENV['STAGE'], 'servers', 0, 'hostname'); puts(v.nil? || v.to_s.strip.empty? ? '' : v.to_s.strip)")
+          if [ -z "$HOST" ]; then
+            echo "No hostname found in deploy.settings.yml for environments.${STAGE}.servers[0].hostname"
+            exit 1
+          fi
+
+          REMOTE_FILE="/data/web/builds/${ARTIFACT_NAME}.tgz"
+          LOCAL_PATH="build/build.tgz"
+
+          eval "$(ssh-agent -s)"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          mkdir -p build
+          echo "Downloading app@${HOST}:${REMOTE_FILE} -> ${LOCAL_PATH}"
+          scp "app@${HOST}:${REMOTE_FILE}" "$LOCAL_PATH"
+          ls -lh "$LOCAL_PATH"
 
       - name: Resolve deploy image
         id: resolve_image
@@ -235,73 +248,4 @@ jobs:
               echo "hostname=$HOSTNAME" >> "$GITHUB_OUTPUT"
               echo "url=https://$HOSTNAME" >> "$GITHUB_OUTPUT"
             fi
-          fi
-
-  # After a successful artifact-based deploy, keep only the artifact from the
-  # deployed build run (fallback: newest). Prevents Actions storage filling up
-  # with large build tarballs. Caller must grant actions: write for this job.
-  cleanup-artifacts:
-    name: Keep only latest build artifact
-    needs: deploy
-    if: inputs.artifact_name != ''
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Delete old build artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ARTIFACT_NAME: ${{ inputs.artifact_name }}
-          KEEP_RUN_ID: ${{ inputs.artifact_run_id }}
-        run: |
-          set -euo pipefail
-
-          # Prefer artifact(s) from the run that was just deployed; otherwise keep newest.
-          mapfile -t keep_ids < <(
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
-              --jq ".artifacts[]
-                | select(.name == \"${ARTIFACT_NAME}\" and .workflow_run.id == (${KEEP_RUN_ID}|tonumber))
-                | .id"
-          )
-
-          if ((${#keep_ids[@]} == 0)); then
-            mapfile -t all_named < <(
-              gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
-                --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id"
-            )
-            if ((${#all_named[@]} > 0)); then
-              keep_ids=("${all_named[0]}")
-            fi
-          fi
-
-          if ((${#keep_ids[@]} == 0)); then
-            echo "No artifacts named ${ARTIFACT_NAME} found."
-            exit 0
-          fi
-
-          declare -A keep_set=()
-          for id in "${keep_ids[@]}"; do
-            keep_set["${id}"]=1
-          done
-          echo "Keeping artifact id(s): ${keep_ids[*]} (${ARTIFACT_NAME}, run ${KEEP_RUN_ID})."
-
-          mapfile -t all_ids < <(
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
-              --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id"
-          )
-
-          deleted=0
-          for id in "${all_ids[@]}"; do
-            if [[ -n "${keep_set[${id}]+x}" ]]; then
-              continue
-            fi
-            echo "Deleting artifact ${id}"
-            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
-            deleted=$((deleted + 1))
-          done
-
-          if ((deleted == 0)); then
-            echo "Nothing to delete."
-          else
-            echo "Deleted ${deleted} old artifact(s)."
           fi
