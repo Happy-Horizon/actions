@@ -84,7 +84,6 @@ jobs:
           coverage: none
 
       - name: Setup SSH for private Composer Git repos
-        if: ${{ secrets.SSH_PRIVATE_KEY != '' }}
         uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}

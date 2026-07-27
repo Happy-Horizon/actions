@@ -6,7 +6,8 @@ description: >
 inputs:
   ssh-private-key:
     description: Private key (PEM or base64-encoded PEM), same as Hypernode SSH_PRIVATE_KEY
-    required: true
+    required: false
+    default: ''
   hosts:
     description: Space-separated SSH hosts to add via ssh-keyscan
     required: false
@@ -22,6 +23,10 @@ runs:
         SSH_HOSTS: ${{ inputs.hosts }}
       run: |
         set -euo pipefail
+        if [ -z "${SSH_PRIVATE_KEY}" ]; then
+          echo "SSH_PRIVATE_KEY not set; skipping private Git SSH setup."
+          exit 0
+        fi
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
         KEY_FILE="$HOME/.ssh/id_rsa"
