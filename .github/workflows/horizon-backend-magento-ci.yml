@@ -174,10 +174,12 @@ jobs:
 
       - name: Run setup:di:compile
         run: |
-          set -euo pipefail
-          # Bootstrap may warn about missing DB; compile itself does not need a live database.
-          # Fail hard on PHP fatals (e.g. Command::execute() missing ": int" under Symfony 7).
-          MAGE_MODE=production php -d memory_limit=2G bin/magento setup:di:compile 2>&1 | tee di-compile.log
+          set -uo pipefail
+          # Compile does not need a live DB, but Magento may still exit non-zero afterward
+          # with SQLSTATE connection refused (shutdown/cache). Pass on the success marker.
+          # Fail hard when that marker is missing (e.g. PHP fatals under Symfony 7).
+          MAGE_MODE=production php -d memory_limit=2G bin/magento setup:di:compile 2>&1 | tee di-compile.log || true
+          set -e
           grep -q 'Generated code and dependency injection configuration successfully' di-compile.log
           test -d generated/code
           test -d generated/metadata
