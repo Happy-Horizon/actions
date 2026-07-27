@@ -130,18 +130,24 @@ on:
 
 jobs:
   deploy:
+    permissions:
+      contents: read
+      # write: reusable workflow prunes old build artifacts after a successful deploy
+      actions: write
     concurrency: production
-    environment:
-      name: production
     uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
     with:
       deploy_stage: production
-      deploy_image: quay.io/hypernode/deploy:latest-php8.4-node22
       artifact_name: deployment-build-production
       artifact_run_id: ${{ inputs.run_id }}
       toolkit_repository: happy-horizon/actions
+      environment_name: production
     secrets: inherit
 ```
+
+When `artifact_name` is set, a follow-up job keeps only the artifact from the
+deployed build run (falls back to the newest) and deletes older artifacts with
+the same name. Callers must grant `actions: write` for that prune step.
 
 #### Inputs
 
@@ -163,7 +169,7 @@ jobs:
 - `COMPOSER_PROCESS_TIMEOUT` (optional)
 - `MAINTENANCE_IP_WHITELIST` (optional)
 - `HYPERNODE_API_TOKEN` (optional)
-- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`). Cross-run artifact download uses the built-in `GITHUB_TOKEN`, so the deploy job is granted `actions: read`.
+- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`). Cross-run artifact download uses the built-in `GITHUB_TOKEN` (`actions: read` on the deploy job). When `artifact_name` is set, a cleanup job also needs `actions: write` from the caller to delete older artifacts.
 
 #### Outputs
 

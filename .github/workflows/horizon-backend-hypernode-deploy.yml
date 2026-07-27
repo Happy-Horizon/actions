@@ -14,6 +14,9 @@
 #
 #   jobs:
 #     deploy:
+#       permissions:
+#         contents: read
+#         actions: write   # required: prunes older artifacts after deploy
 #       uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
 #       with:
 #         deploy_stage: production
@@ -22,6 +25,9 @@
 #         toolkit_repository: happy-horizon/actions
 #         environment_name: production
 #       secrets: inherit
+#
+# When artifact_name is set, a cleanup job keeps only the deployed run's
+# artifact (fallback: newest) and deletes older ones with the same name.
 #
 # deploy.settings.yml + layering docs: horizon-deploy/README.md
 
@@ -229,4 +235,73 @@ jobs:
               echo "hostname=$HOSTNAME" >> "$GITHUB_OUTPUT"
               echo "url=https://$HOSTNAME" >> "$GITHUB_OUTPUT"
             fi
+          fi
+
+  # After a successful artifact-based deploy, keep only the artifact from the
+  # deployed build run (fallback: newest). Prevents Actions storage filling up
+  # with large build tarballs. Caller must grant actions: write for this job.
+  cleanup-artifacts:
+    name: Keep only latest build artifact
+    needs: deploy
+    if: inputs.artifact_name != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+          KEEP_RUN_ID: ${{ inputs.artifact_run_id }}
+        run: |
+          set -euo pipefail
+
+          # Prefer artifact(s) from the run that was just deployed; otherwise keep newest.
+          mapfile -t keep_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+              --jq ".artifacts[]
+                | select(.name == \"${ARTIFACT_NAME}\" and .workflow_run.id == (${KEEP_RUN_ID}|tonumber))
+                | .id"
+          )
+
+          if ((${#keep_ids[@]} == 0)); then
+            mapfile -t all_named < <(
+              gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+                --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id"
+            )
+            if ((${#all_named[@]} > 0)); then
+              keep_ids=("${all_named[0]}")
+            fi
+          fi
+
+          if ((${#keep_ids[@]} == 0)); then
+            echo "No artifacts named ${ARTIFACT_NAME} found."
+            exit 0
+          fi
+
+          declare -A keep_set=()
+          for id in "${keep_ids[@]}"; do
+            keep_set["${id}"]=1
+          done
+          echo "Keeping artifact id(s): ${keep_ids[*]} (${ARTIFACT_NAME}, run ${KEEP_RUN_ID})."
+
+          mapfile -t all_ids < <(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/artifacts" \
+              --jq ".artifacts[] | select(.name == \"${ARTIFACT_NAME}\") | .id"
+          )
+
+          deleted=0
+          for id in "${all_ids[@]}"; do
+            if [[ -n "${keep_set[${id}]+x}" ]]; then
+              continue
+            fi
+            echo "Deleting artifact ${id}"
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
+            deleted=$((deleted + 1))
+          done
+
+          if ((deleted == 0)); then
+            echo "Nothing to delete."
+          else
+            echo "Deleted ${deleted} old artifact(s)."
           fi

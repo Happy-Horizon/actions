@@ -1,0 +1,866 @@
+#!/usr/bin/env bash
+# Usage: bin/prepare-github-migration <target-repo-path> [options]
+#
+# Options:
+#   --staging-node <name>        Hypernode name for staging (e.g. christmasstaging)
+#   --production-node <name>     Hypernode name for production (e.g. christmas)
+#   --staging-domain <domain>    Public store domain for staging (optional;
+#                                defaults to <staging-node>.hypernode.io)
+#   --production-domain <domain> Public store domain for production (optional;
+#                                defaults to <production-node>.hypernode.io)
+#
+# Fully prepares a Magento backend repo for GitHub Actions deployment:
+#   1. Fetches latest changes from all remotes in the target repo
+#   2. Creates and checks out a feature/migration branch
+#   3. Reads deploy.settings.yml for environments + hostnames, OR bootstraps it
+#      from --staging-node / --production-node when the file is absent
+#   4. SSHes into each Hypernode to detect PHP + Node.js versions
+#   5. Patches deploy.settings.yml with the correct deploy_image per environment
+#   6. Pulls nginx config and crontab from each Hypernode
+#   7. Generates .github/workflows/ files (ci.yml, staging.yml, build.yml, deploy-production.yml)
+#   8. Updates @hyperdeploy → @production in any other existing workflow files
+#   9. Populates shared_files / shared_folders in deploy.settings.yml from
+#      .exclude-files-deploy
+#  10. Runs setup-shared-symlinks --dry-run for each environment
+#
+# Note: deploy.php and horizon-deploy/ are NOT created in the target repo. The
+# reusable deploy workflow checks out happy-horizon/actions at CI runtime.
+#
+# Examples:
+#   bin/prepare-github-migration ../horizon-backend
+#   bin/prepare-github-migration ../christmas-backend \
+#       --staging-node christmasstaging --production-node christmas
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# ── Argument parsing ──────────────────────────────────────────────────────────
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $(basename "$0") <target-repo-path> [options]" >&2
+    echo "  --staging-node <name>        Hypernode name for staging" >&2
+    echo "  --production-node <name>     Hypernode name for production" >&2
+    echo "  --staging-domain <domain>    Public store domain for staging (optional)" >&2
+    echo "  --production-domain <domain> Public store domain for production (optional)" >&2
+    exit 1
+fi
+
+TARGET_ARG="$1"
+shift
+
+STAGING_NODE=""
+PRODUCTION_NODE=""
+STAGING_DOMAIN=""
+PRODUCTION_DOMAIN=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --staging-node)        STAGING_NODE="$2"; shift 2 ;;
+        --production-node)     PRODUCTION_NODE="$2"; shift 2 ;;
+        --staging-domain)      STAGING_DOMAIN="$2"; shift 2 ;;
+        --production-domain)   PRODUCTION_DOMAIN="$2"; shift 2 ;;
+        *)
+            echo "Error: unknown option '$1'" >&2
+            exit 1
+            ;;
+    esac
+done
+
+TARGET="$(cd "${TARGET_ARG}" && pwd)"
+SETTINGS="${TARGET}/deploy.settings.yml"
+
+echo "=== Preparing GitHub Migration for: ${TARGET} ==="
+echo ""
+
+# ── Bootstrap deploy.settings.yml when absent ─────────────────────────────────
+
+BOOTSTRAPPED_SETTINGS=""
+if [ ! -f "${SETTINGS}" ]; then
+    echo "deploy.settings.yml not found — bootstrapping a new one."
+    BOOTSTRAPPED_SETTINGS="1"
+
+    if [ -z "${STAGING_NODE}" ] || [ -z "${PRODUCTION_NODE}" ]; then
+        echo "Error: deploy.settings.yml is absent, so --staging-node and --production-node are required." >&2
+        echo "  e.g. $(basename "$0") ${TARGET_ARG} --staging-node mystaging --production-node myprod" >&2
+        exit 1
+    fi
+
+    # 'domain' is required by hypernode-deploy (Bootstrap.php throws when empty),
+    # but it is only a per-stage label and does not limit which storefronts
+    # deploy. When no domain is provided (e.g. multi-domain sites), default it to
+    # the Hypernode hostname so the config is always valid.
+    STAGING_DOMAIN_VALUE="${STAGING_DOMAIN:-${STAGING_NODE}.hypernode.io}"
+    PRODUCTION_DOMAIN_VALUE="${PRODUCTION_DOMAIN:-${PRODUCTION_NODE}.hypernode.io}"
+
+    # When staging and production share a Hypernode, omit nginx_config for
+    # staging and add a domain-based deploy_path so deploys don't conflict.
+    if [ "${STAGING_NODE}" = "${PRODUCTION_NODE}" ]; then
+        STAGING_DEPLOY_PATH_LINE="    variables:
+      deploy:
+        deploy_path: /data/web/apps/${STAGING_DOMAIN_VALUE}"
+        STAGING_NGINX_LINE=""
+    else
+        STAGING_DEPLOY_PATH_LINE=""
+        STAGING_NGINX_LINE="    nginx_config: .hypernode/staging/nginx"
+    fi
+
+    {
+        cat << SETTINGSEOF
+# Project deploy config. See horizon-deploy/README.md (layering, env overrides, CI).
+environments:
+  staging:
+    domain: ${STAGING_DOMAIN_VALUE}
+    username: app
+    deploy_image: quay.io/hypernode/deploy:latest-php8.2-node18
+    servers:
+      - hostname: ${STAGING_NODE}.hypernode.io
+    cron_config: .hypernode/staging/cron
+SETTINGSEOF
+        [ -n "${STAGING_NGINX_LINE}" ]       && echo "${STAGING_NGINX_LINE}"
+        [ -n "${STAGING_DEPLOY_PATH_LINE}" ] && printf '%s\n' "${STAGING_DEPLOY_PATH_LINE}"
+        cat << SETTINGSEOF
+
+  production:
+    domain: ${PRODUCTION_DOMAIN_VALUE}
+    username: app
+    deploy_image: quay.io/hypernode/deploy:latest-php8.2-node18
+    servers:
+      - hostname: ${PRODUCTION_NODE}.hypernode.io
+    cron_config: .hypernode/production/cron
+    nginx_config: .hypernode/production/nginx
+SETTINGSEOF
+    } > "${SETTINGS}"
+
+    echo "Created: deploy.settings.yml"
+    echo "  (deploy_image placeholders will be overwritten by version detection below)"
+    echo ""
+fi
+
+# ── YAML helpers ─────────────────────────────────────────────────────────────
+# Parse deploy.settings.yml with python3 (pyyaml) or fall back to grep.
+
+yaml_get() {
+    # yaml_get <file> <python-expression-on-d>
+    local file="$1"
+    local expr="$2"
+    python3 -c "
+import sys
+try:
+    import yaml
+    with open('${file}') as f:
+        d = yaml.safe_load(f)
+    result = ${expr}
+    if result is None:
+        sys.exit(0)
+    print(result)
+except ImportError:
+    sys.exit(2)
+" 2>/dev/null || true
+}
+
+yaml_available() {
+    python3 -c "import yaml" 2>/dev/null
+}
+
+# ── Read environments from deploy.settings.yml ───────────────────────────────
+
+if yaml_available; then
+    ENVS=$(python3 -c "
+import yaml, sys
+with open('${SETTINGS}') as f:
+    d = yaml.safe_load(f)
+envs = d.get('environments', {})
+for name, cfg in envs.items():
+    servers = cfg.get('servers', [])
+    hostname = servers[0].get('hostname', '') if servers else ''
+    print(f'{name}:{hostname}')
+")
+else
+    # Fallback: grep for environment keys + hostnames
+    ENVS=$(awk '
+        /^  [a-z]/ { env=$1; sub(/:$/,"",env) }
+        /hostname:/ { gsub(/^ *hostname: */, ""); gsub(/ *$/, ""); print env ":" $0 }
+    ' "${SETTINGS}")
+fi
+
+if [ -z "${ENVS}" ]; then
+    echo "Error: no environments found in ${SETTINGS}" >&2
+    exit 1
+fi
+
+echo "Environments found:"
+while IFS=: read -r ENV HOSTNAME; do
+    echo "  ${ENV} → ${HOSTNAME}"
+done <<< "${ENVS}"
+echo ""
+
+# ── Detect environments that share a Hypernode host ───────────────────────────
+# When staging and production point at the same hostname we:
+#   • skip pulling nginx for non-production envs (pull it once from production)
+#   • set a domain-based deploy_path for non-production envs so deploys don't
+#     clobber each other on the same server
+
+# Build a flat env=hostname lookup string for kv_get
+HOSTNAMES_KV=""
+while IFS=: read -r _e _h; do
+    [ -z "${_e}" ] && continue
+    HOSTNAMES_KV="${HOSTNAMES_KV}${_e}=${_h}
+"
+done <<< "${ENVS}"
+
+# Read per-environment domain (needed to build the staging deploy_path)
+DOMAINS_KV=""
+if yaml_available; then
+    DOMAINS_KV=$(python3 -c "
+import yaml
+with open('${SETTINGS}') as f:
+    d = yaml.safe_load(f)
+for name, cfg in d.get('environments', {}).items():
+    print(f'{name}:{cfg.get(\"domain\", \"\")}')
+" 2>/dev/null || true)
+fi
+
+# Determine which non-production envs share a hostname with another env
+SKIP_NGINX_ENVS=""
+while IFS=: read -r ENV HOSTNAME; do
+    [ -z "${ENV}" ] && continue
+    [ "${ENV}" = "production" ] && continue
+    _count=$(printf '%s\n' "${HOSTNAMES_KV}" | grep -c "=${HOSTNAME}$" || true)
+    if [ "${_count}" -gt 1 ]; then
+        SKIP_NGINX_ENVS="${SKIP_NGINX_ENVS}${ENV}
+"
+        echo "  Note: ${ENV} shares the same Hypernode as production (${HOSTNAME})"
+        echo "        → nginx will only be pulled from the production environment"
+        echo "        → a domain-based deploy_path will be set for ${ENV}"
+    fi
+done <<< "${ENVS}"
+[ -n "${SKIP_NGINX_ENVS}" ] && echo ""
+
+# ── Fetch latest changes from all remotes ─────────────────────────────────────
+
+echo "→ Fetching latest changes in ${TARGET}..."
+if git -C "${TARGET}" fetch --all --prune 2>&1 | sed 's/^/  /'; then
+    echo ""
+else
+    echo "  Warning: git fetch failed (no remotes or network error)" >&2
+    echo ""
+fi
+
+# ── Create feature/migration branch ──────────────────────────────────────────
+
+echo "→ Creating feature/migration branch..."
+if git -C "${TARGET}" show-ref --verify --quiet "refs/heads/feature/migration"; then
+    echo "  Branch feature/migration already exists — checking it out"
+    git -C "${TARGET}" checkout feature/migration
+else
+    git -C "${TARGET}" checkout -b feature/migration
+    echo "  Created and checked out feature/migration"
+fi
+echo ""
+
+# ── Pre-flight diff: report what will be created / pulled / patched / skipped ──
+
+WORKFLOWS_DIR="${TARGET}/.github/workflows"
+
+echo "=== Migration diff for: ${TARGET} ==="
+echo ""
+
+# deploy.settings.yml status (was it just bootstrapped, or already present?)
+if [ -n "${BOOTSTRAPPED_SETTINGS:-}" ]; then
+    echo "  [CREATE]  deploy.settings.yml"
+else
+    echo "  [PATCH ]  deploy.settings.yml (deploy_image per environment)"
+fi
+
+# .hypernode pulls per environment
+while IFS=: read -r ENV HOSTNAME; do
+    [ -z "${ENV}" ] && continue
+    echo "  [PULL  ]  .hypernode/${ENV}/cron + nginx/"
+done <<< "${ENVS}"
+
+# generated workflow files (always written)
+for wf in ci.yml staging.yml build.yml deploy-production.yml; do
+    echo "  [WRITE ]  .github/workflows/${wf}"
+done
+
+echo ""
+
+# ── Per-environment: detect versions, patch deploy_image, pull configs ────────
+# bash 3.2 (macOS default) has no associative arrays; use newline-delimited
+# "env=value" accumulators with a small lookup helper instead.
+
+PHP_VERSIONS_KV=""
+NODE_VERSIONS_KV=""
+
+kv_get() {
+    # kv_get <key> <kv-string> ; prints value or empty
+    printf '%s\n' "$2" | grep "^$1=" | head -1 | cut -d= -f2-
+}
+
+while IFS=: read -r ENV HOSTNAME; do
+    [ -z "${ENV}" ] && continue
+
+    SSH_HOST="app@${HOSTNAME}"
+
+    echo "─── Environment: ${ENV} (${HOSTNAME}) ───────────────────────────────"
+
+    # ── Detect PHP version ────────────────────────────────────────────────────
+    echo "→ Detecting PHP version..."
+    PHP_RAW=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_HOST}" \
+        "php -r 'echo PHP_MAJOR_VERSION.\".\" .PHP_MINOR_VERSION;' 2>/dev/null" 2>/dev/null || echo "unknown")
+    PHP_VERSIONS_KV="${PHP_VERSIONS_KV}${ENV}=${PHP_RAW}
+"
+    echo "  PHP: ${PHP_RAW}"
+
+    # ── Detect Node.js version ────────────────────────────────────────────────
+    echo "→ Detecting Node.js version..."
+    NODE_RAW=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_HOST}" \
+        "node --version 2>/dev/null" 2>/dev/null || echo "unknown")
+    # Strip leading 'v' and keep major only (e.g. v22.1.0 → 22)
+    NODE_MAJOR=$(echo "${NODE_RAW}" | sed 's/^v//' | cut -d. -f1)
+    [ "${NODE_MAJOR}" = "unknown" ] && NODE_MAJOR="unknown"
+    NODE_VERSIONS_KV="${NODE_VERSIONS_KV}${ENV}=${NODE_MAJOR}
+"
+    echo "  Node: ${NODE_RAW} (major: ${NODE_MAJOR})"
+
+    # ── Build deploy_image tag ────────────────────────────────────────────────
+    if [ "${PHP_RAW}" != "unknown" ] && [ "${NODE_MAJOR}" != "unknown" ]; then
+        DEPLOY_IMAGE="quay.io/hypernode/deploy:latest-php${PHP_RAW}-node${NODE_MAJOR}"
+    else
+        echo "  Warning: could not detect versions, skipping deploy_image patch for ${ENV}" >&2
+        DEPLOY_IMAGE=""
+    fi
+
+    # ── Patch deploy.settings.yml ────────────────────────────────────────────
+    if [ -n "${DEPLOY_IMAGE}" ]; then
+        echo "→ Patching deploy.settings.yml deploy_image for ${ENV}..."
+
+        # Replace the deploy_image line within the environment block.
+        # Strategy: use python3 for safe in-place YAML patching when available.
+        if yaml_available; then
+            python3 - "${SETTINGS}" "${ENV}" "${DEPLOY_IMAGE}" << 'PYEOF' || echo "  Warning: failed to patch deploy_image for ${ENV} via python3" >&2
+import sys, yaml
+
+settings_file, env_name, image = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(settings_file) as f:
+    content = f.read()
+
+d = yaml.safe_load(content)
+if env_name in d.get('environments', {}):
+    d['environments'][env_name]['deploy_image'] = image
+
+# Re-serialize preserving structure as much as possible via line-by-line patch.
+# We patch the line directly to avoid reformatting the whole file.
+lines = content.splitlines(keepends=True)
+in_env_block = False
+env_indent = None
+replaced = False
+
+for i, line in enumerate(lines):
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+
+    # Detect entry into target environment block
+    if stripped.startswith(env_name + ':') and indent == 2:
+        in_env_block = True
+        env_indent = indent
+        continue
+
+    if in_env_block:
+        # Exit block when we hit another top-level or same-level key
+        if indent <= env_indent and stripped and not stripped.startswith('#'):
+            in_env_block = False
+        elif stripped.startswith('deploy_image:') and not replaced:
+            lines[i] = ' ' * (indent) + f'deploy_image: {image}\n'
+            replaced = True
+
+# If deploy_image wasn't found in the block, add it after the block header
+if not replaced:
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if stripped.startswith(env_name + ':') and indent == 2:
+            lines.insert(i + 1, ' ' * 4 + f'deploy_image: {image}\n')
+            break
+
+with open(settings_file, 'w') as f:
+    f.writelines(lines)
+
+print(f'  Updated {settings_file}: {env_name}.deploy_image = {image}')
+PYEOF
+        else
+            # Fallback sed-based replacement (less safe but functional)
+            # This is a best-effort line replacement within the env block.
+            sed -i.bak "s|deploy_image:.*|deploy_image: ${DEPLOY_IMAGE}|" "${SETTINGS}"
+            rm -f "${SETTINGS}.bak"
+            echo "  Updated ${SETTINGS} (sed fallback)"
+        fi
+    fi
+
+    # ── Pull nginx + cron ─────────────────────────────────────────────────────
+    OUT_DIR="${TARGET}/.hypernode/${ENV}"
+    CRON_FILE="${OUT_DIR}/cron"
+    NGINX_DIR="${OUT_DIR}/nginx"
+
+    echo "→ Pulling crontab..."
+    mkdir -p "${NGINX_DIR}"
+    if ssh -o BatchMode=yes -o ConnectTimeout=10 "${SSH_HOST}" \
+        "crontab -l 2>/dev/null || true" > "${CRON_FILE}" 2>/dev/null; then
+        echo "  .hypernode/${ENV}/cron"
+    else
+        echo "  Warning: could not pull crontab from ${SSH_HOST}" >&2
+    fi
+
+    # Skip nginx pull for non-production envs that share a host with production.
+    # Those envs will have their nginx_config patched to point to production nginx.
+    if printf '%s\n' "${SKIP_NGINX_ENVS}" | grep -qx "${ENV}" 2>/dev/null; then
+        echo "→ Skipping nginx pull for ${ENV} (shares host with production — will reuse production nginx)"
+    else
+        echo "→ Pulling /data/web/nginx/..."
+        if rsync -avz --links -e "ssh -o BatchMode=yes -o ConnectTimeout=10" \
+            "${SSH_HOST}:/data/web/nginx/" \
+            "${NGINX_DIR}/" 2>&1 | sed 's/^/  /'; then
+            echo "  .hypernode/${ENV}/nginx/"
+        else
+            echo "  Warning: could not rsync nginx config from ${SSH_HOST}" >&2
+        fi
+    fi
+
+    echo ""
+done <<< "${ENVS}"
+
+echo "=== Step: patching shared-host environments ==="
+
+# ── Patch deploy.settings.yml for shared-host environments ───────────────────
+# For each non-production env that shares a host with production:
+#   • nginx_config → .hypernode/production/nginx   (reuse production pull)
+#   • variables.deploy.deploy_path → /data/web/apps/<domain>  (avoid clobbering)
+
+if [ -n "${SKIP_NGINX_ENVS}" ] && yaml_available; then
+    echo "→ Patching deploy.settings.yml for shared-host environments..."
+
+    python3 - "${SETTINGS}" << PYEOF || echo "  Warning: failed to patch deploy.settings.yml for shared-host environments" >&2
+import sys, yaml
+
+settings_file = sys.argv[1]
+
+# Shared envs injected from bash (one name per line, trailing newline)
+skip_nginx_raw = """${SKIP_NGINX_ENVS}"""
+shared_env_names = [e.strip() for e in skip_nginx_raw.splitlines() if e.strip()]
+
+# Domain lookup from bash kv string  env:domain
+domains_raw = """${DOMAINS_KV}"""
+domain_map = {}
+for line in domains_raw.splitlines():
+    if ':' in line:
+        k, _, v = line.partition(':')
+        domain_map[k.strip()] = v.strip()
+
+with open(settings_file) as f:
+    lines = f.readlines()
+
+def remove_env_key(lines, env_name, key):
+    """Remove a 'key: ...' line from within the named environment block."""
+    in_block = False
+    env_indent = None
+    result = []
+    for line in lines:
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if stripped.startswith(env_name + ':') and indent == 2:
+            in_block = True
+            env_indent = indent
+            result.append(line)
+            continue
+        if in_block:
+            if indent <= env_indent and stripped and not stripped.startswith('#'):
+                in_block = False
+            elif stripped.startswith(key + ':'):
+                continue  # drop the line
+        result.append(line)
+    return result
+
+def patch_env_block(lines, env_name, patches, inserts):
+    """
+    patches : dict of key → new-value  (replaces existing 'key: ...' lines)
+    inserts : list of (indent, text) lines to append before the block ends
+              when the key is not already present
+    """
+    in_block = False
+    env_indent = None
+    block_end = len(lines)
+    patched_keys = set()
+
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+
+        if stripped.startswith(env_name + ':') and indent == 2:
+            in_block = True
+            env_indent = indent
+            continue
+
+        if in_block:
+            if indent <= env_indent and stripped and not stripped.startswith('#'):
+                block_end = i
+                in_block = False
+                break
+            for key, value in patches.items():
+                if stripped.startswith(key + ':') and key not in patched_keys:
+                    lines[i] = ' ' * indent + f'{key}: {value}\n'
+                    patched_keys.add(key)
+
+    # Append any insert blocks that weren't already present
+    offset = 0
+    for key, insert_lines in inserts:
+        if key not in patched_keys:
+            for j, il in enumerate(insert_lines):
+                lines.insert(block_end + offset + j, il)
+            offset += len(insert_lines)
+
+    return lines
+
+for env_name in shared_env_names:
+    domain = domain_map.get(env_name, '')
+    deploy_path = f'/data/web/apps/{domain}' if domain else '/data/web/deploy_staging'
+
+    lines = remove_env_key(lines, env_name, 'nginx_config')
+    inserts = [
+        ('variables', [
+            '    variables:\n',
+            '      deploy:\n',
+            f'        deploy_path: {deploy_path}\n',
+        ])
+    ]
+    lines = patch_env_block(lines, env_name, {}, inserts)
+    print(f'  Patched {env_name}: removed nginx_config, deploy_path → {deploy_path}')
+
+with open(settings_file, 'w') as f:
+    f.writelines(lines)
+PYEOF
+    echo ""
+fi
+
+echo "=== Step: populating shared_files / shared_folders ==="
+
+# ── Populate shared_files / shared_folders from .exclude-files-deploy ─────────
+
+EXCLUDE_FILE="${TARGET}/.exclude-files-deploy"
+if [ -f "${EXCLUDE_FILE}" ]; then
+    echo "→ Parsing ${EXCLUDE_FILE} for shared_files / shared_folders..."
+
+    SHARED_FILES=()
+    SHARED_FOLDERS=()
+
+    while IFS= read -r line; do
+        # Skip comments and blank lines
+        [[ "${line}" =~ ^[[:space:]]*# ]] && continue
+        [[ "${line}" =~ ^[[:space:]]*$ ]] && continue
+
+        # Trim leading whitespace
+        stripped="${line#"${line%%[! ]*}"}"
+        # Remove leading slash
+        clean="${stripped#/}"
+
+        # Folder heuristic: original line has trailing / or ends with /*
+        if [[ "${stripped}" == */ ]] || [[ "${stripped}" == *\/* && "${stripped}" == *\* ]]; then
+            folder="${clean%/}"
+            folder="${folder%/\*}"
+            SHARED_FOLDERS+=("${folder}")
+        else
+            SHARED_FILES+=("${clean}")
+        fi
+    done < "${EXCLUDE_FILE}"
+
+    echo "  shared_files  (${#SHARED_FILES[@]}): ${SHARED_FILES[*]:-none}"
+    echo "  shared_folders (${#SHARED_FOLDERS[@]}): ${SHARED_FOLDERS[*]:-none}"
+    echo ""
+
+    # Inject shared_files / shared_folders into deploy.settings.yml via Python
+    if yaml_available && { [ ${#SHARED_FILES[@]} -gt 0 ] || [ ${#SHARED_FOLDERS[@]} -gt 0 ]; }; then
+        python3 - "${SETTINGS}" << PYEOF || echo "  Warning: failed to inject shared_files/shared_folders into deploy.settings.yml" >&2
+import sys
+
+settings_file = sys.argv[1]
+shared_files   = [$(printf '"%s",' "${SHARED_FILES[@]+"${SHARED_FILES[@]}"}")] 
+shared_folders = [$(printf '"%s",' "${SHARED_FOLDERS[@]+"${SHARED_FOLDERS[@]}"}")] 
+
+with open(settings_file) as f:
+    content = f.read()
+
+lines = content.splitlines(keepends=True)
+
+# Remove any existing top-level shared_files / shared_folders blocks so we
+# can re-write them cleanly (they must be outside the environments: block).
+filtered = []
+skip = False
+for line in lines:
+    stripped = line.lstrip()
+    indent = len(line) - len(stripped)
+    if indent == 0 and (stripped.startswith('shared_files:') or stripped.startswith('shared_folders:')):
+        skip = True
+        continue
+    if skip and indent > 0:
+        continue
+    skip = False
+    filtered.append(line)
+
+# Append the new blocks at the end of the file
+if shared_files:
+    filtered.append('\nshared_files:\n')
+    for p in shared_files:
+        filtered.append(f'  - {p}\n')
+
+if shared_folders:
+    filtered.append('\nshared_folders:\n')
+    for p in shared_folders:
+        filtered.append(f'  - {p}\n')
+
+with open(settings_file, 'w') as f:
+    f.writelines(filtered)
+
+print(f'  Updated {settings_file}: shared_files + shared_folders written')
+PYEOF
+    elif ! yaml_available; then
+        echo "  Warning: python3 yaml not available; skipping shared_files/shared_folders injection" >&2
+    fi
+else
+    echo "  Warning: ${EXCLUDE_FILE} not found — skipping shared_files/shared_folders population" >&2
+    echo ""
+fi
+
+echo "=== Step: determining PHP version for workflows ==="
+
+# ── Determine PHP version to use in workflow files ────────────────────────────
+# Use production PHP version if available, otherwise staging.
+WORKFLOW_PHP_VERSION=""
+for env_key in production staging; do
+    ver="$(kv_get "${env_key}" "${PHP_VERSIONS_KV}")"
+    if [ -n "${ver}" ] && [ "${ver}" != "unknown" ]; then
+        WORKFLOW_PHP_VERSION="${ver}"
+        break
+    fi
+done
+# Fallback
+if [ -z "${WORKFLOW_PHP_VERSION}" ]; then
+    WORKFLOW_PHP_VERSION="8.2"
+    echo "Warning: could not detect PHP version, defaulting to ${WORKFLOW_PHP_VERSION} in workflow files" >&2
+fi
+
+echo "Using PHP ${WORKFLOW_PHP_VERSION} in generated workflow files."
+echo ""
+
+# ── Generate .github/workflows/ files ────────────────────────────────────────
+echo "=== Generating workflow files in .github/workflows/ ==="
+echo "  Target dir: ${WORKFLOWS_DIR}"
+mkdir -p "${WORKFLOWS_DIR}" || { echo "ERROR: failed to create ${WORKFLOWS_DIR}" >&2; exit 1; }
+
+# ── ci.yml ────────────────────────────────────────────────────────────────────
+CI_WORKFLOW="${WORKFLOWS_DIR}/ci.yml"
+echo "  Writing ${CI_WORKFLOW}..."
+cat > "${CI_WORKFLOW}" << CIEOF
+name: CI
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'bugfix/**'
+      - develop
+
+jobs:
+  ci:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
+    with:
+      php_version: '${WORKFLOW_PHP_VERSION}'
+    secrets: inherit
+CIEOF
+echo "Written: .github/workflows/ci.yml"
+
+# ── staging.yml ───────────────────────────────────────────────────────────────
+STAGING_WORKFLOW="${WORKFLOWS_DIR}/staging.yml"
+cat > "${STAGING_WORKFLOW}" << STAGINGEOF
+name: Deploy to staging
+
+on:
+  push:
+    branches:
+      - staging
+
+jobs:
+  ci:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
+    with:
+      php_version: '${WORKFLOW_PHP_VERSION}'
+    secrets: inherit
+
+  deploy:
+    needs: ci
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
+    with:
+      deploy_stage: staging
+      toolkit_repository: happy-horizon/actions
+      environment_name: staging
+    secrets: inherit
+STAGINGEOF
+echo "Written: .github/workflows/staging.yml"
+
+# ── build.yml ─────────────────────────────────────────────────────────────────
+BUILD_WORKFLOW="${WORKFLOWS_DIR}/build.yml"
+cat > "${BUILD_WORKFLOW}" << BUILDEOF
+name: Build application
+
+on:
+  push:
+    branches:
+      - production
+
+jobs:
+  build:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-build.yml@production
+    with:
+      deploy_stage: production
+      artifact_name: deployment-build-production
+      toolkit_repository: happy-horizon/actions
+    secrets: inherit
+BUILDEOF
+echo "Written: .github/workflows/build.yml"
+
+# ── deploy-production.yml ─────────────────────────────────────────────────────
+DEPLOY_PROD_WORKFLOW="${WORKFLOWS_DIR}/deploy-production.yml"
+cat > "${DEPLOY_PROD_WORKFLOW}" << DEPLOYPRODEOF
+name: Deploy to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Build workflow run ID to deploy"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      # write required so the reusable workflow can prune old build artifacts after deploy
+      actions: write
+    concurrency: production
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
+    with:
+      deploy_stage: production
+      artifact_name: deployment-build-production
+      artifact_run_id: \${{ inputs.run_id }}
+      toolkit_repository: happy-horizon/actions
+      toolkit_ref: production
+      environment_name: production
+    secrets: inherit
+DEPLOYPRODEOF
+echo "Written: .github/workflows/deploy-production.yml"
+
+# ── Patch @hyperdeploy → @production in existing workflow files ───────────────
+echo ""
+echo "→ Patching @hyperdeploy → @production in existing workflow files..."
+for wf_file in "${WORKFLOWS_DIR}"/*.yml "${WORKFLOWS_DIR}"/*.yaml; do
+    [ -f "${wf_file}" ] || continue
+    if grep -q "@hyperdeploy" "${wf_file}" 2>/dev/null; then
+        sed -i.bak 's|@hyperdeploy|@production|g' "${wf_file}"
+        rm -f "${wf_file}.bak"
+        echo "  Patched: $(basename "${wf_file}")"
+    fi
+done
+
+# ── Dry-run setup-shared-symlinks for each environment ────────────────────────
+
+echo ""
+echo "=== Dry-run: setup-shared-symlinks per environment ==="
+echo ""
+
+SYMLINKS_SCRIPT="${SCRIPT_DIR}/setup-shared-symlinks"
+if [ ! -x "${SYMLINKS_SCRIPT}" ]; then
+    echo "  Warning: ${SYMLINKS_SCRIPT} not found or not executable — skipping dry-run" >&2
+else
+    while IFS=: read -r ENV HOSTNAME; do
+        [ -z "${ENV}" ] && continue
+        NODE_NAME="${HOSTNAME%.hypernode.io}"
+        echo "─── Dry-run symlinks: ${ENV} (${NODE_NAME}) ─────────────────────────────"
+        if [ -f "${EXCLUDE_FILE:-}" ]; then
+            "${SYMLINKS_SCRIPT}" --dry-run "${NODE_NAME}" "${EXCLUDE_FILE}" || true
+        else
+            echo "  Skipped: no .exclude-files-deploy found in ${TARGET}" >&2
+        fi
+        echo ""
+    done <<< "${ENVS}"
+fi
+
+# ── Commit migration files to feature/migration ───────────────────────────────
+
+echo ""
+echo "→ Committing migration files to feature/migration..."
+
+# Add each path only when it exists (avoids 'did not match any files' errors
+# when SSH connections failed and no files were pulled).
+for add_path in deploy.settings.yml .hypernode .github/workflows; do
+    if [ -e "${TARGET}/${add_path}" ]; then
+        git -C "${TARGET}" add -- "${add_path}"
+    else
+        echo "  Skipping git add: ${add_path} not found"
+    fi
+done
+
+# Show what is staged so it's clear what will be committed
+STAGED_FILES=$(git -C "${TARGET}" diff --cached --name-only)
+if [ -z "${STAGED_FILES}" ]; then
+    echo "  Nothing to commit (all migration files already up to date)"
+else
+    echo "  Staged files:"
+    echo "${STAGED_FILES}" | sed 's/^/    /'
+    git -C "${TARGET}" commit \
+        -m "chore: prepare GitHub Actions migration" \
+        -m "- Add deploy.settings.yml with PHP/Node deploy_image per environment
+- Pull nginx and cron configs from Hypernode(s)
+- Generate .github/workflows/ (ci.yml, staging.yml, build.yml, deploy-production.yml)
+- Add shared_files and shared_folders from .exclude-files-deploy"
+    echo "  Committed to feature/migration"
+fi
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+echo ""
+echo "=== Migration Summary ==="
+echo ""
+echo "deploy.settings.yml — deploy_image per environment:"
+while IFS=: read -r ENV HOSTNAME; do
+    [ -z "${ENV}" ] && continue
+    PHP="$(kv_get "${ENV}" "${PHP_VERSIONS_KV}")"; PHP="${PHP:-unknown}"
+    NODE="$(kv_get "${ENV}" "${NODE_VERSIONS_KV}")"; NODE="${NODE:-unknown}"
+    if [ "${PHP}" != "unknown" ] && [ "${NODE}" != "unknown" ]; then
+        echo "  ${ENV}: quay.io/hypernode/deploy:latest-php${PHP}-node${NODE}"
+    else
+        echo "  ${ENV}: (not patched — version detection failed)"
+    fi
+done <<< "${ENVS}"
+
+echo ""
+echo "Configs pulled:"
+while IFS=: read -r ENV HOSTNAME; do
+    [ -z "${ENV}" ] && continue
+    echo "  .hypernode/${ENV}/cron"
+    echo "  .hypernode/${ENV}/nginx/"
+done <<< "${ENVS}"
+
+echo ""
+echo "Workflow files:"
+for wf in ci.yml staging.yml build.yml deploy-production.yml; do
+    wf_path="${WORKFLOWS_DIR}/${wf}"
+    [ -f "${wf_path}" ] && echo "  .github/workflows/${wf}"
+done
+
+echo ""
+echo "=== Done ==="
+echo ""
+echo "Next steps:"
+echo "  1. Review the commit on feature/migration (git log -1 --stat)"
+echo "  2. Add SSH_PRIVATE_KEY and DEPLOY_COMPOSER_AUTH secrets to your GitHub repo"
+echo "  3. Push the branch: git push -u origin feature/migration"
