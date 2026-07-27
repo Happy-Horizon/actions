@@ -77,7 +77,6 @@ defaults:
     - magento:maintenance:enable-if-needed
     - magento:config:import
     - magento:upgrade:db
-    - magento:performance:config
     - magento:cache:flush
     - magento:cache:enable
     - magento:maintenance:disable
