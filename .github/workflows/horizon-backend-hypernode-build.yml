@@ -150,14 +150,23 @@ jobs:
           REMOTE_FILE="${REMOTE_DIR}/${ARTIFACT_NAME}.tgz"
           REMOTE_TMP="${REMOTE_FILE}.tmp"
 
-          eval "$(ssh-agent -s)"
-          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          # Match hypernode-deploy: SSH_PRIVATE_KEY is usually base64-encoded.
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
+          KEY_FILE="$HOME/.ssh/id_rsa"
+          if printf '%s' "$SSH_PRIVATE_KEY" | grep -qE 'BEGIN (OPENSSH|RSA) PRIVATE KEY'; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_FILE"
+          else
+            printf '%s' "$SSH_PRIVATE_KEY" | tr -d '\r\n' | base64 -d > "$KEY_FILE"
+          fi
+          # OpenSSH requires a trailing newline on the key file.
+          [ -n "$(tail -c1 "$KEY_FILE" || true)" ] && printf '\n' >> "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes)
 
           echo "Uploading ${ARTIFACT_PATH} to app@${HOST}:${REMOTE_FILE} (overwrite latest)"
-          ssh "app@${HOST}" "mkdir -p '${REMOTE_DIR}'"
-          scp "$ARTIFACT_PATH" "app@${HOST}:${REMOTE_TMP}"
-          ssh "app@${HOST}" "mv '${REMOTE_TMP}' '${REMOTE_FILE}'"
+          ssh "${SSH_OPTS[@]}" "app@${HOST}" "mkdir -p '${REMOTE_DIR}'"
+          scp "${SSH_OPTS[@]}" "$ARTIFACT_PATH" "app@${HOST}:${REMOTE_TMP}"
+          ssh "${SSH_OPTS[@]}" "app@${HOST}" "mv '${REMOTE_TMP}' '${REMOTE_FILE}'"
           echo "Stored latest build at app@${HOST}:${REMOTE_FILE}"
