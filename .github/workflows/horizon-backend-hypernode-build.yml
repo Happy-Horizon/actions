@@ -31,7 +31,7 @@ on:
           from deploy.settings.yml when set, otherwise deploy_image_fallback.
       deploy_image_fallback:
         type: string
-        default: quay.io/hypernode/deploy:4-php8.2-node18
+        default: quay.io/hypernode/deploy:4.8.0-php8.4-node22
         description: Used when deploy_image is empty and the stage has no deploy_image in deploy.settings.yml
       toolkit_repository:
         type: string

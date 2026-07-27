@@ -6,8 +6,8 @@ namespace HappyHorizon\Deploy;
 
 use Hypernode\DeployConfiguration\Configuration;
 use Hypernode\DeployConfiguration\PlatformConfiguration\CronConfiguration;
-use Hypernode\DeployConfiguration\PlatformConfiguration\HypernodeSettingConfiguration;
 use Symfony\Component\Yaml\Yaml;
+use function Deployer\after;
 use function Deployer\commandExist;
 use function Deployer\desc;
 use function Deployer\get;
@@ -15,6 +15,7 @@ use function Deployer\run;
 use function Deployer\task;
 use function Deployer\upload;
 use function Deployer\warning;
+use function Deployer\writeln;
 
 final class Bootstrap
 {
@@ -144,6 +145,88 @@ final class Bootstrap
 
             run("cd {{release_or_current_path}} && COMPOSER_PROCESS_TIMEOUT=$composerTimeout {{bin/composer}} {{composer_action}} {{composer_options}} 2>&1");
         });
+
+        desc('Applies Hypernode platform settings only when they drift (maintenance-wrapped)');
+        task('hypernode:settings:sync', function () {
+            try {
+                $settings = get('horizon_hypernode_settings');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $settings = [];
+            }
+            if (!is_array($settings) || $settings === []) {
+                return;
+            }
+
+            $toApply = [];
+            foreach ($settings as $row) {
+                if (!is_array($row) || !isset($row['name'], $row['value'])) {
+                    continue;
+                }
+                $name = (string) $row['name'];
+                $desired = (string) $row['value'];
+                if ($name === '' || $desired === '') {
+                    continue;
+                }
+                if (!preg_match('/^[A-Za-z0-9_]+$/', $name) || !preg_match('/^[A-Za-z0-9._-]+$/', $desired)) {
+                    warning("hypernode:settings:sync: skipping unsafe setting {$name}={$desired}");
+                    continue;
+                }
+
+                try {
+                    $output = run("hypernode-systemctl settings {$name}");
+                } catch (\Throwable $e) {
+                    warning("hypernode:settings:sync: could not read {$name} ({$e->getMessage()}); assuming drift");
+                    $output = '';
+                }
+                $current = null;
+                if (preg_match('/is set to value\s+(\S+)/i', $output, $m)) {
+                    $current = $m[1];
+                }
+                if ($current !== null && $current === $desired) {
+                    writeln("<info>hypernode:settings:sync: {$name} already {$desired}</info>");
+                    continue;
+                }
+
+                $toApply[] = ['name' => $name, 'value' => $desired, 'current' => $current];
+            }
+
+            if ($toApply === []) {
+                return;
+            }
+
+            foreach ($toApply as $row) {
+                $from = $row['current'] ?? '(unknown)';
+                writeln("<comment>hypernode:settings:sync: {$row['name']} {$from} → {$row['value']}</comment>");
+            }
+
+            // Use the node's default `php` binary for the maintenance wrap:
+            // {{bin/php}} points at the *desired* PHP version, which is not
+            // installed until after the platform update completes.
+            $maintenance = function (string $action): void {
+                $flags = '';
+                if ($action === 'enable') {
+                    try {
+                        $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
+                    } catch (\Deployer\Exception\ConfigurationException $e) {
+                        $ipWhitelist = [];
+                    }
+                    foreach ($ipWhitelist as $ip) {
+                        $flags .= " --ip={$ip}";
+                    }
+                }
+                run("if [ -d $(echo {{current_path}}) ]; then php {{current_path}}/{{magento_dir}}/bin/magento maintenance:{$action}{$flags}; fi");
+            };
+
+            $maintenance('enable');
+            try {
+                foreach ($toApply as $row) {
+                    run("yes | hypernode-systemctl settings {$row['name']} {$row['value']} --block");
+                }
+            } finally {
+                $maintenance('disable');
+            }
+        });
+        after('deploy:setup', 'hypernode:settings:sync');
     }
 
     /**
@@ -404,19 +487,32 @@ final class Bootstrap
             $configuration->setVariable('magento_dir', $magentoDir, 'deploy');
         }
 
-        $platform = [];
+        // Platform settings (php_version, mysql_version, …) are applied by
+        // hypernode:settings:sync — idempotent + maintenance-wrapped. Do not
+        // register HypernodeSettingConfiguration here: its built-in task always
+        // runs --block even when already matching and can fail on API 502s.
+        $settingsByName = [];
+        if (preg_match('/^\d+\.\d+$/', $phpVersion)) {
+            $settingsByName['php_version'] = $phpVersion;
+        }
         foreach ($defaults['hypernode_settings'] ?? [] as $row) {
             if (!is_array($row) || !isset($row['name'], $row['value'])) {
                 continue;
             }
-            // php_version belongs on setPhpVersion() (Deployer binary), not as a
-            // platform setting — re-applying it every deploy is unnecessary and brittle.
-            if ((string) $row['name'] === 'php_version') {
+            $name = (string) $row['name'];
+            $value = (string) $row['value'];
+            if ($name === '' || $value === '') {
                 continue;
             }
-            $platform[] = new HypernodeSettingConfiguration((string) $row['name'], (string) $row['value']);
+            $settingsByName[$name] = $value;
         }
+        $horizonSettings = [];
+        foreach ($settingsByName as $name => $value) {
+            $horizonSettings[] = ['name' => $name, 'value' => $value];
+        }
+        $configuration->setVariable('horizon_hypernode_settings', $horizonSettings, 'deploy');
 
+        $platform = [];
         $cronConfig = $defaults['cron_config'] ?? null;
         if (is_string($cronConfig) && $cronConfig !== '') {
             $platform[] = new CronConfiguration($cronConfig);

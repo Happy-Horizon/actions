@@ -28,7 +28,7 @@ Optional:
 ```yaml
 # Optional: merged ON TOP of horizon-deploy/defaults/magento2.yml (see “Layering” below)
 defaults:
-  php_version: "8.3"
+  php_version: "8.4"   # Deployer CLI + desired Hypernode platform PHP (synced on drift)
   variables:
     build:
       static_content_jobs: 8
@@ -85,6 +85,8 @@ Behavior:
 - **Scalars** such as **`recipe`**, **`php_version`**, **`public_folder`**, **`magento_dir`**: project value **replaces** central when set in project `defaults`.
 
 Use project **`defaults`** to add an extra shared folder, bump `static_content_jobs`, or change PHP version without copying the whole central file.
+
+**`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 
 ### 2) Active stage overrides (replace)
 

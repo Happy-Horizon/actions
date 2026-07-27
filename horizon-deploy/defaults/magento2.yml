@@ -1,12 +1,16 @@
 # Central defaults for Hypernode Deploy (Magento 2). Override or extend from project deploy.settings.yml.
 defaults:
   recipe: magento2
-  php_version: "8.2"
+  # Deployer CLI binary (php8.4 …/bin/magento) AND desired Hypernode platform PHP.
+  # Platform sync is idempotent: hypernode:settings:sync compares live values and
+  # only runs hypernode-systemctl --block (maintenance-wrapped) when they drift.
+  php_version: "8.4"
   public_folder: pub
   magento_dir: null
-  hypernode_settings:
-    - name: php_version
-      value: "8.2"
+  # Extra platform settings (e.g. mysql_version). Same sync + maintenance wrap.
+  # php_version from the scalar above is included automatically; listing it here
+  # again overrides the scalar for the platform sync only.
+  hypernode_settings: []
   variables:
     build:
       static_content_locales: "en_US nl_NL"
