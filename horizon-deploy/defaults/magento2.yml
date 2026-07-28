@@ -74,6 +74,8 @@ defaults:
     - deploy:vendors
     - deploy:apcu-autoload
     - magento:compile
+    # No-op unless hyva_tailwind_dirs is set (must run before SCD).
+    - hyva:tailwind:build
     - magento:deploy:assets
   deploy_tasks:
     - magento:maintenance:enable-if-needed

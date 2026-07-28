@@ -168,7 +168,6 @@ final class Bootstrap
                 run("cd {{release_or_current_path}}/{$dir} && npm ci && npm run build");
             }
         });
-        after('magento:compile', 'hyva:tailwind:build');
 
         desc('Installs vendors');
         task('deploy:vendors', function () {
