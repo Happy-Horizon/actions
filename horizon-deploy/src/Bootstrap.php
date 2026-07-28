@@ -143,6 +143,27 @@ final class Bootstrap
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento cache:enable; fi");
         });
 
+        desc('Builds Hyvä Tailwind CSS (npm) before static content deploy');
+        task('hyva:tailwind:build', function () {
+            try {
+                $dirs = get('hyva_tailwind_dirs');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $dirs = [];
+            }
+            if (!is_array($dirs) || $dirs === []) {
+                return;
+            }
+
+            foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
+                $dir = trim($dir, '/');
+                run("cd {{release_or_current_path}}/{$dir} && npm ci && npm run build");
+            }
+        });
+        after('magento:compile', 'hyva:tailwind:build');
+
         desc('Installs vendors');
         task('deploy:vendors', function () {
             if (!commandExist('unzip')) {
@@ -381,6 +402,10 @@ final class Bootstrap
     private static function mergeVariablesLayers(array $central, array $project): array
     {
         $out = $central;
+        // Keys that must replace (not array_merge) so a locale-map of themes
+        // does not keep leftover numeric Magento/blank entries from defaults.
+        $replaceKeys = ['magento_themes', 'magento_themes_backend', 'hyva_tailwind_dirs'];
+
         foreach (['all', 'build', 'deploy'] as $stage) {
             if (!isset($project[$stage]) || !is_array($project[$stage])) {
                 continue;
@@ -389,6 +414,11 @@ final class Bootstrap
                 $out[$stage] = [];
             }
             $out[$stage] = array_merge($out[$stage], $project[$stage]);
+            foreach ($replaceKeys as $key) {
+                if (\array_key_exists($key, $project[$stage])) {
+                    $out[$stage][$key] = $project[$stage][$key];
+                }
+            }
         }
 
         return $out;
@@ -558,6 +588,12 @@ final class Bootstrap
                 foreach ($bucket as $key => $val) {
                     $configuration->setVariable((string) $key, $val, $stage);
                 }
+            }
+
+            // Locale-mapped theme lists require split SCD (Hypernode Deploy 4.8+).
+            $buildThemes = $variables['build']['magento_themes'] ?? null;
+            if (is_array($buildThemes) && $buildThemes !== [] && !\array_is_list($buildThemes)) {
+                $configuration->setVariable('split_static_deployment', true, 'build');
             }
         }
 

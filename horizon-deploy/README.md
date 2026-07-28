@@ -85,7 +85,23 @@ Behavior:
 - **`variables`**: per bucket **`all` / `build` / `deploy`**, keys from the project **override** the same keys from central (PHP `array_merge` on each bucket).
 - **Scalars** such as **`recipe`**, **`php_version`**, **`public_folder`**, **`magento_dir`**: project value **replaces** central when set in project `defaults`.
 
-Use project **`defaults`** to add an extra shared folder, bump `static_content_jobs`, or change PHP version without copying the whole central file.
+Use project **`defaults`** to add an extra shared folder, bump `static_content_jobs`, change PHP version, or set Hyvä themes without copying the whole central file.
+
+**Hyvä themes (Hypernode Deploy 4.8+):** set a locale-mapped `magento_themes`, optional `hyva_tailwind_dirs` (npm build runs after `magento:compile`), and `high_performance_static_deploy: true`:
+
+```yaml
+defaults:
+  variables:
+    build:
+      magento_themes:
+        HappyHorizon/hyva: "en_US nl_NL"
+        Magento/backend: "en_US nl_NL"
+      hyva_tailwind_dirs:
+        - app/design/frontend/HappyHorizon/hyva/web/tailwind
+      high_performance_static_deploy: true
+```
+
+`magento_themes` from the project **replaces** the central list (so Magento/blank is not left behind).
 
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 

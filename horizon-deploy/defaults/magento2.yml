@@ -15,9 +15,12 @@ defaults:
     build:
       static_content_locales: "en_US nl_NL"
       static_content_jobs: 4
+      # Projects should override with a locale map, e.g.
+      #   HappyHorizon/hyva: "en_US nl_NL"
+      #   Magento/backend: "en_US nl_NL"
+      # For Hyvä also set hyva_tailwind_dirs + high_performance_static_deploy (4.8+).
       magento_themes:
         - Magento/backend
-        - Magento/blank
       composer_process_timeout: 300
       env:
         MAGE_MODE: production
