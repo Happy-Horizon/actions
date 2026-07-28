@@ -400,6 +400,41 @@ final class Bootstrap
     }
 
     /**
+     * Drop nested shared paths when a parent is also shared.
+     * Deployer rejects e.g. sharing both `var` and `var/export`.
+     *
+     * @param array<int|string, mixed> $paths
+     * @return list<string>
+     */
+    private static function filterNestedSharedPaths(array $paths): array
+    {
+        $normalized = [];
+        foreach ($paths as $path) {
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            $normalized[] = trim(str_replace('\\', '/', $path), '/');
+        }
+        $normalized = array_values(array_unique($normalized));
+
+        $kept = [];
+        foreach ($normalized as $path) {
+            $isNested = false;
+            foreach ($normalized as $other) {
+                if ($other !== $path && str_starts_with($path . '/', $other . '/')) {
+                    $isNested = true;
+                    break;
+                }
+            }
+            if (!$isNested) {
+                $kept[] = $path;
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
      * @param array<string, mixed> $central
      * @param array<string, mixed> $project
      * @return array<string, mixed>
@@ -613,10 +648,8 @@ final class Bootstrap
             }
         }
 
-        foreach ($defaults['shared_folders'] ?? [] as $folder) {
-            if (is_string($folder) && $folder !== '') {
-                $configuration->addSharedFolder($folder);
-            }
+        foreach (self::filterNestedSharedPaths($defaults['shared_folders'] ?? []) as $folder) {
+            $configuration->addSharedFolder($folder);
         }
 
         foreach ($defaults['deploy_excludes'] ?? [] as $exclude) {
