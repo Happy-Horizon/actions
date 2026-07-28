@@ -128,7 +128,13 @@ final class Bootstrap
                 warning('hypernode:nginx:sync: nginx_config_path is not set, skipping.');
                 return;
             }
-            upload(rtrim($path, '/') . '/', '/data/web/nginx/', [
+            $local = rtrim($path, '/');
+            // upload() reads from the local build/deploy workspace (e.g. /build/...).
+            if (!is_dir($local)) {
+                warning("hypernode:nginx:sync: {$path} does not exist locally, skipping.");
+                return;
+            }
+            upload($local . '/', '/data/web/nginx/', [
                 'options' => ['--exclude=ssl/', '--delete'],
             ]);
         });
