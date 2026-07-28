@@ -458,12 +458,20 @@ final class Bootstrap
             'build_tasks',
             'deploy_tasks',
             'hypernode_settings',
-            'variables',
         ];
         foreach ($arrayReplaceKeys as $key) {
             if (\array_key_exists($key, $envBlock) && is_array($envBlock[$key])) {
                 $defaults[$key] = $envBlock[$key];
             }
+        }
+
+        // Deep-merge variables buckets so a stage can set e.g. deploy.deploy_path
+        // without wiping build.env.MAGE_MODE / static_content_* from defaults.
+        if (\array_key_exists('variables', $envBlock) && is_array($envBlock['variables'])) {
+            $defaults['variables'] = self::mergeVariablesLayers(
+                isset($defaults['variables']) && is_array($defaults['variables']) ? $defaults['variables'] : [],
+                $envBlock['variables']
+            );
         }
 
         foreach (['recipe', 'php_version', 'public_folder', 'nginx_config', 'cron_config'] as $scalarKey) {

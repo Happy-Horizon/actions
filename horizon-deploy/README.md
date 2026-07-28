@@ -89,14 +89,16 @@ Use project **`defaults`** to add an extra shared folder, bump `static_content_j
 
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 
-### 2) Active stage overrides (replace)
+### 2) Active stage overrides
 
-When **`DEPLOY_CONFIG_STAGE`** is set, or the CLI is `hypernode-deploy deploy <stage> …`, that **`<stage>`** block can **replace** parts of the **already merged** defaults for **this run only**:
+When **`DEPLOY_CONFIG_STAGE`** is set, or the CLI is `hypernode-deploy deploy <stage> …`, that **`<stage>`** block can override parts of the **already merged** defaults for **this run only**:
 
 If the environment defines any of these keys **as an array**, the **entire** list or map is **replaced** (not merged with merged defaults):
 
 - `deploy_excludes`, `shared_files`, `shared_folders`
-- `build_tasks`, `deploy_tasks`, `hypernode_settings`, `variables`
+- `build_tasks`, `deploy_tasks`, `hypernode_settings`
+
+**`variables`** on the environment are **deep-merged** per bucket (`all` / `build` / `deploy`), same as project `defaults.variables`. So a stage can set `variables.deploy.deploy_path` without wiping `variables.build.env.MAGE_MODE` or static-content settings from defaults.
 
 Scalars that can be overridden when set on the environment:
 
