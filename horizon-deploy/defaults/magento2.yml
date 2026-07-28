@@ -27,7 +27,6 @@ defaults:
       maintenance_ip_whitelist: "${MAINTENANCE_IP_WHITELIST}"
   shared_files:
     - app/etc/env.php
-    - pub/errors/local.xml
     - pub/.user.ini
   shared_folders:
     - pub/sitemaps
