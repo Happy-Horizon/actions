@@ -195,9 +195,11 @@ final class Bootstrap
                 }
                 $dir = trim($dir, '/');
                 // Match classic deploy.sh: npm install + local gulp binary (not npx).
+                // PHANTOMJS_SKIP_DOWNLOAD: hypernode-deploy images lack bzip2; phantomjs
+                // (transitive) fails extracting *.tar.bz2. Not needed for gulp styles.
                 run(
                     "cd {{release_or_current_path}}/{$dir}"
-                    . ' && npm install'
+                    . ' && PHANTOMJS_SKIP_DOWNLOAD=true npm install'
                     . ' && node_modules/gulp/bin/gulp.js ' . $gulpArgs
                 );
             }

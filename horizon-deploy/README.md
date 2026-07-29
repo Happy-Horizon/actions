@@ -101,7 +101,7 @@ defaults:
       high_performance_static_deploy: true
 ```
 
-**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed:
+**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed. `npm install` sets `PHANTOMJS_SKIP_DOWNLOAD=true` (deploy images have no `bzip2`; PhantomJS is unused for styles):
 
 ```yaml
 defaults:
