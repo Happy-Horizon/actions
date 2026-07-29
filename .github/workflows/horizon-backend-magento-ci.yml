@@ -80,6 +80,8 @@ jobs:
         run: composer install --prefer-dist --no-progress
         env:
           COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
+          COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
       - name: Run static code scans
         run: bash ./vendor/experius/module-testsuite/Test/static/run.sh ${{ inputs.scan_path }}
@@ -127,6 +129,8 @@ jobs:
           COMPOSER_PROCESS_TIMEOUT: 0
           COMPOSER_NO_INTERACTION: 1
           COMPOSER_NO_AUDIT: 1
+          # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
+          COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
       - name: Create minimal env.php for compile
         run: |

@@ -239,7 +239,13 @@ final class Bootstrap
                 $composerTimeout = 300;
             }
 
-            run("cd {{release_or_current_path}} && COMPOSER_PROCESS_TIMEOUT=$composerTimeout {{bin/composer}} {{composer_action}} {{composer_options}} 2>&1");
+            // PHP <8 + recent Composer: weltpixel/etc tar dists need this override.
+            run(
+                "cd {{release_or_current_path}}"
+                . " && COMPOSER_ALLOW_UNSAFE_PHAR_METADATA=1"
+                . " COMPOSER_PROCESS_TIMEOUT=$composerTimeout"
+                . " {{bin/composer}} {{composer_action}} {{composer_options}} 2>&1"
+            );
         });
 
         desc('Applies Hypernode platform settings only when they drift (maintenance-wrapped)');
