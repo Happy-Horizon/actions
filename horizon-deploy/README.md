@@ -116,6 +116,15 @@ defaults:
 
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 
+**Composer version (Magento ≤2.4.3):** deploy images may ship Composer 2.3+ / 2.9, which breaks `laminas/laminas-dependency-plugin` (`composer-plugin-api <2.3`). Pin the 2.2 LTS before `composer install`:
+
+```yaml
+defaults:
+  variables:
+    build:
+      composer_self_update: "2.2"
+```
+
 ### 2) Active stage overrides
 
 When **`DEPLOY_CONFIG_STAGE`** is set, or the CLI is `hypernode-deploy deploy <stage> …`, that **`<stage>`** block can override parts of the **already merged** defaults for **this run only**:

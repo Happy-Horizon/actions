@@ -211,6 +211,17 @@ final class Bootstrap
                 warning('To speed up composer installation setup "unzip" command with PHP zip extension.');
             }
 
+            // Magento <=2.4.3 needs Composer 2.2 LTS (laminas-dependency-plugin
+            // requires composer-plugin-api <2.3). Deploy images often ship newer Composer.
+            try {
+                $composerSelfUpdate = get('composer_self_update');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $composerSelfUpdate = null;
+            }
+            if (is_string($composerSelfUpdate) && preg_match('/^\d+(?:\.\d+)?$/', $composerSelfUpdate) === 1) {
+                run("{{bin/composer}} self-update --{$composerSelfUpdate} 2>&1");
+            }
+
             try {
                 $composerTimeout = get('composer_process_timeout') ?: 300;
             } catch (\Deployer\Exception\ConfigurationException $exception) {
@@ -486,6 +497,7 @@ final class Bootstrap
             'hyva_tailwind_dirs',
             'snowdog_frontools_dirs',
             'snowdog_frontools_gulp_args',
+            'composer_self_update',
         ];
 
         foreach (['all', 'build', 'deploy'] as $stage) {
