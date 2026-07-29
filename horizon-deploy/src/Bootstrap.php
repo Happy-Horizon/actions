@@ -197,6 +197,18 @@ final class Bootstrap
                 // Match classic deploy.sh: npm install + local gulp binary (not npx).
                 // Transitive phantomjs needs bzip2 to unpack *.tar.bz2; deploy images omit it.
                 // Older phantomjs packages ignore PHANTOMJS_SKIP_DOWNLOAD — install bzip2.
+                // Snowdog frontools 1.8 / node-sass need Node 12 (prebuilt bindings); images
+                // often ship Node 16/18 and then node-gyp rebuild fails on Python 3.
+                try {
+                    $nodeVersion = get('snowdog_frontools_node_version');
+                } catch (\Deployer\Exception\ConfigurationException $e) {
+                    $nodeVersion = '12.22.12';
+                }
+                if (!is_string($nodeVersion) || !preg_match('/^\d+(?:\.\d+){0,2}$/', $nodeVersion)) {
+                    $nodeVersion = '12.22.12';
+                }
+                $nodeMajor = explode('.', $nodeVersion)[0];
+
                 run(
                     'if ! command -v bzip2 >/dev/null 2>&1; then '
                     . 'if command -v apt-get >/dev/null 2>&1; then '
@@ -207,7 +219,19 @@ final class Bootstrap
                     . 'fi'
                 );
                 run(
-                    "cd {{release_or_current_path}}/{$dir}"
+                    'NODE_MAJOR=' . escapeshellarg($nodeMajor) . '; '
+                    . 'NODE_VERSION=' . escapeshellarg($nodeVersion) . '; '
+                    . 'if ! node -v 2>/dev/null | grep -qE "^v${NODE_MAJOR}\\."; then '
+                    . 'NODE_HOME="/tmp/horizon-node${NODE_MAJOR}"; '
+                    . 'if [ ! -x "${NODE_HOME}/bin/node" ]; then '
+                    . 'mkdir -p "${NODE_HOME}"; '
+                    . 'curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" '
+                    . '| tar -xJ -C "${NODE_HOME}" --strip-components=1; '
+                    . 'fi; '
+                    . 'export PATH="${NODE_HOME}/bin:${PATH}"; '
+                    . 'fi; '
+                    . 'echo "Using node $(node -v) / npm $(npm -v)"; '
+                    . "cd {{release_or_current_path}}/{$dir}"
                     . ' && PHANTOMJS_SKIP_DOWNLOAD=true'
                     . ' npm_config_phantomjs_skip_download=true'
                     . ' npm install'
@@ -514,6 +538,7 @@ final class Bootstrap
             'hyva_tailwind_dirs',
             'snowdog_frontools_dirs',
             'snowdog_frontools_gulp_args',
+            'snowdog_frontools_node_version',
             'composer_self_update',
         ];
 

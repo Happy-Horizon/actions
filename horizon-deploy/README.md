@@ -101,7 +101,7 @@ defaults:
       high_performance_static_deploy: true
 ```
 
-**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed. `npm install` sets `PHANTOMJS_SKIP_DOWNLOAD=true` (deploy images have no `bzip2`; PhantomJS is unused for styles):
+**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed. `npm install` sets `PHANTOMJS_SKIP_DOWNLOAD=true`, installs `bzip2` when missing, and ensures **Node 12** (default `snowdog_frontools_node_version: "12.22.12"`) because frontools 1.8 / `node-sass` do not build on Node 16/18:
 
 ```yaml
 defaults:
@@ -109,6 +109,7 @@ defaults:
     build:
       snowdog_frontools_dirs:
         - tools
+      # snowdog_frontools_node_version: "12.22.12"
       # snowdog_frontools_gulp_args: "styles --ci --prod --disableMaps"
 ```
 
