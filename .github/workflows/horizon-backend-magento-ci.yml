@@ -7,6 +7,7 @@
 #       uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
 #       with:
 #         php_version: '8.2'
+#         composer_version: '2.2'   # Magento ≤2.4.3 needs Composer 2.2 LTS
 #         scan_path: app/code
 #       secrets: inherit
 
@@ -19,6 +20,12 @@ on:
         type: string
         default: '8.2'
         description: PHP version to use for the CI jobs
+      composer_version:
+        type: string
+        default: '2'
+        description: >
+          Composer version for shivammathur/setup-php tools (e.g. 2, 2.2).
+          Use 2.2 for Magento ≤2.4.3 (laminas-dependency-plugin needs composer-plugin-api <2.3).
       php_extensions:
         type: string
         default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql, xsl, sockets
@@ -54,6 +61,7 @@ jobs:
           php-version: ${{ inputs.php_version }}
           extensions: ${{ inputs.php_extensions }}
           coverage: none
+          tools: composer:${{ inputs.composer_version }}
 
       - name: Setup SSH for private Composer Git repos
         uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
@@ -93,6 +101,7 @@ jobs:
           extensions: ${{ inputs.php_extensions }}
           coverage: none
           ini-values: memory_limit=2G
+          tools: composer:${{ inputs.composer_version }}
 
       - name: Setup SSH for private Composer Git repos
         uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
