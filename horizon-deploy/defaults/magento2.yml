@@ -77,6 +77,8 @@ defaults:
     # No-op unless hyva_tailwind_dirs is set (must run before SCD).
     - hyva:tailwind:build
     - magento:deploy:assets
+    # No-op unless snowdog_frontools_dirs is set (must run after SCD).
+    - snowdog:frontools:styles
   deploy_tasks:
     - magento:maintenance:enable-if-needed
     - magento:config:import

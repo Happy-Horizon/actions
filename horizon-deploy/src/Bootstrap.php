@@ -169,6 +169,40 @@ final class Bootstrap
             }
         });
 
+        desc('Builds Snowdog frontools styles (gulp) after static content deploy');
+        task('snowdog:frontools:styles', function () {
+            try {
+                $dirs = get('snowdog_frontools_dirs');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $dirs = [];
+            }
+            if (!is_array($dirs) || $dirs === []) {
+                return;
+            }
+
+            try {
+                $gulpArgs = get('snowdog_frontools_gulp_args');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $gulpArgs = 'styles --ci --prod --disableMaps';
+            }
+            if (!is_string($gulpArgs) || trim($gulpArgs) === '') {
+                $gulpArgs = 'styles --ci --prod --disableMaps';
+            }
+
+            foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
+                $dir = trim($dir, '/');
+                // Match classic deploy.sh: npm install + local gulp binary (not npx).
+                run(
+                    "cd {{release_or_current_path}}/{$dir}"
+                    . ' && npm install'
+                    . ' && node_modules/gulp/bin/gulp.js ' . $gulpArgs
+                );
+            }
+        });
+
         desc('Installs vendors');
         task('deploy:vendors', function () {
             if (!commandExist('unzip')) {
@@ -444,7 +478,13 @@ final class Bootstrap
         $out = $central;
         // Keys that must replace (not array_merge) so a locale-map of themes
         // does not keep leftover numeric Magento/blank entries from defaults.
-        $replaceKeys = ['magento_themes', 'magento_themes_backend', 'hyva_tailwind_dirs'];
+        $replaceKeys = [
+            'magento_themes',
+            'magento_themes_backend',
+            'hyva_tailwind_dirs',
+            'snowdog_frontools_dirs',
+            'snowdog_frontools_gulp_args',
+        ];
 
         foreach (['all', 'build', 'deploy'] as $stage) {
             if (!isset($project[$stage]) || !is_array($project[$stage])) {

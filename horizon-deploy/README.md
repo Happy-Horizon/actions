@@ -101,6 +101,17 @@ defaults:
       high_performance_static_deploy: true
 ```
 
+**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed:
+
+```yaml
+defaults:
+  variables:
+    build:
+      snowdog_frontools_dirs:
+        - tools
+      # snowdog_frontools_gulp_args: "styles --ci --prod --disableMaps"
+```
+
 `magento_themes` from the project **replaces** the central list (so Magento/blank is not left behind).
 
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
