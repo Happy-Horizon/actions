@@ -218,18 +218,22 @@ final class Bootstrap
                     . 'fi; '
                     . 'fi'
                 );
+                // Use the .tar.gz dist (not .tar.xz): deploy images lack the xz binary.
                 run(
-                    'NODE_MAJOR=' . escapeshellarg($nodeMajor) . '; '
+                    'set -e; '
+                    . 'NODE_MAJOR=' . escapeshellarg($nodeMajor) . '; '
                     . 'NODE_VERSION=' . escapeshellarg($nodeVersion) . '; '
                     . 'if ! node -v 2>/dev/null | grep -qE "^v${NODE_MAJOR}\\."; then '
                     . 'NODE_HOME="/tmp/horizon-node${NODE_MAJOR}"; '
                     . 'if [ ! -x "${NODE_HOME}/bin/node" ]; then '
                     . 'mkdir -p "${NODE_HOME}"; '
-                    . 'curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" '
-                    . '| tar -xJ -C "${NODE_HOME}" --strip-components=1; '
+                    . 'curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" '
+                    . '| tar -xz -C "${NODE_HOME}" --strip-components=1; '
                     . 'fi; '
                     . 'export PATH="${NODE_HOME}/bin:${PATH}"; '
                     . 'fi; '
+                    . 'node -v | grep -qE "^v${NODE_MAJOR}\\." '
+                    . '|| { echo "ERROR: node $(node -v) on PATH, need v${NODE_MAJOR}.x for frontools"; exit 1; }; '
                     . 'echo "Using node $(node -v) / npm $(npm -v)"; '
                     . "cd {{release_or_current_path}}/{$dir}"
                     . ' && PHANTOMJS_SKIP_DOWNLOAD=true'
