@@ -244,16 +244,6 @@ final class Bootstrap
             }
         });
 
-        // setup:di:compile may write a minimal app/etc/env.php (cache_types only).
-        // Packages that bootstrap from Composer registration (e.g. experius/connector-
-        // interface-magento) then fail SCD with "No database connection was found…".
-        // Shared env.php is restored on the server via shared_files — safe to drop here.
-        desc('Removes build-generated env.php before static content deploy');
-        task('magento:build:remove-env', function () {
-            run('rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php');
-        });
-        before('magento:deploy:assets', 'magento:build:remove-env');
-
         desc('Installs vendors');
         task('deploy:vendors', function () {
             if (!commandExist('unzip')) {
