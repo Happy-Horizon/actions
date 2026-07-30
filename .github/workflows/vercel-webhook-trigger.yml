@@ -8,9 +8,9 @@ jobs:
   vercel:
     if: >-
       ${{
-        contains(fromJson('["production","staging","upgrade"]'), github.event.client_payload.environment) ||
-        contains(fromJson('["production","staging","upgrade"]'), github.event.client_payload.target) ||
-        contains(fromJson('["production","staging","upgrade","refs/heads/production","refs/heads/staging","refs/heads/upgrade"]'), github.event.client_payload.git.ref)
+        contains(fromJson('["production","staging","upgrade","canary"]'), github.event.client_payload.environment) ||
+        contains(fromJson('["production","staging","upgrade","canary"]'), github.event.client_payload.target) ||
+        contains(fromJson('["production","staging","upgrade","canary","refs/heads/production","refs/heads/staging","refs/heads/upgrade","refs/heads/canary"]'), github.event.client_payload.git.ref)
       }}
     uses: happy-horizon/actions/.github/workflows/horizon-storefront-vercel-deployment-success.yml@production
     secrets: inherit
