@@ -252,7 +252,6 @@ final class Bootstrap
         task('magento:build:remove-env', function () {
             run('rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php');
         });
-        before('magento:deploy:assets', 'magento:build:remove-env');
 
         desc('Installs vendors');
         task('deploy:vendors', function () {

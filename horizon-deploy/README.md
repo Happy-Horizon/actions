@@ -115,7 +115,7 @@ defaults:
 
 `magento_themes` from the project **replaces** the central list (so Magento/blank is not left behind).
 
-**Build-generated `env.php`:** `setup:di:compile` may write a minimal `app/etc/env.php` (cache types only). Packages that read DB config during Composer/Magento bootstrap (notably `experius/connector-interface-magento`) then fail `setup:static-content:deploy` with *No database connection was found…*. The toolkit registers `magento:build:remove-env` **before** `magento:deploy:assets` so that stub is deleted; the real `env.php` comes from `shared_files` on the server.
+**Build-generated `env.php`:** `setup:di:compile` may write a minimal `app/etc/env.php` (cache types only). Packages that read DB config during Composer/Magento bootstrap (notably `experius/connector-interface-magento`) then fail `setup:static-content:deploy` with *No database connection was found…*. Central `build_tasks` runs `magento:build:remove-env` before `magento:deploy:assets` so that stub is deleted; the real `env.php` comes from `shared_files` on the server. If you replace `build_tasks` on a stage/project, keep `magento:build:remove-env` in the list.
 
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 
