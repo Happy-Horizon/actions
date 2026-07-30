@@ -247,11 +247,40 @@ final class Bootstrap
         // setup:di:compile may write a minimal app/etc/env.php (cache_types only).
         // Packages that bootstrap from Composer registration (e.g. experius/connector-
         // interface-magento) then fail SCD with "No database connection was found…".
-        // Shared env.php is restored on the server via shared_files — safe to drop here.
-        desc('Removes build-generated env.php before static content deploy');
+        // Deleting env.php only helps the first SCD call — later calls (split adminhtml/
+        // frontend) recreate the stub without db. Write a dummy db section instead;
+        // Magento merges cache_types into it. Shared env.php is restored on the server.
+        desc('Writes a build stub env.php with dummy DB config for static content deploy');
+        task('magento:build:stub-env', function () {
+            $stub = <<<'PHP'
+<?php
+return [
+    'db' => [
+        'connection' => [
+            'default' => [
+                'host' => '127.0.0.1',
+                'dbname' => 'magento_build',
+                'username' => 'magento',
+                'password' => 'magento',
+                'active' => '1',
+            ],
+        ],
+    ],
+];
+PHP;
+            $b64 = base64_encode($stub);
+            run(
+                'cd {{release_or_current_path}}/{{magento_dir}}'
+                . ' && echo ' . escapeshellarg($b64)
+                . ' | base64 -d > app/etc/env.php'
+            );
+        });
+
+        desc('Removes build stub env.php after static content deploy');
         task('magento:build:remove-env', function () {
             run('rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php');
         });
+        after('magento:deploy:assets', 'magento:build:remove-env');
 
         desc('Installs vendors');
         task('deploy:vendors', function () {
