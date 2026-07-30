@@ -79,8 +79,6 @@ defaults:
     # Dummy DB env.php so Experius connector survives split SCD — see Bootstrap.php.
     - magento:build:stub-env
     - magento:deploy:assets
-    # Drop the build stub so it is not packaged; shared env.php is used on the server.
-    - magento:build:remove-env
     # No-op unless snowdog_frontools_dirs is set (must run after SCD).
     - snowdog:frontools:styles
   deploy_tasks:
