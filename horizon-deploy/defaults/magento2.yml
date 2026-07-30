@@ -76,8 +76,8 @@ defaults:
     - magento:compile
     # No-op unless hyva_tailwind_dirs is set (must run before SCD).
     - hyva:tailwind:build
-    # Dummy DB env.php so Experius connector survives split SCD — see Bootstrap.php.
-    - magento:build:stub-env
+    # Drop compile-generated env.php stub (no DB) before SCD — see Bootstrap.php.
+    - magento:build:remove-env
     - magento:deploy:assets
     # No-op unless snowdog_frontools_dirs is set (must run after SCD).
     - snowdog:frontools:styles
