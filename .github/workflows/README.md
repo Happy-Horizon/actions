@@ -184,6 +184,15 @@ Reusable workflow for storefront deploy follow-up tasks after Vercel success eve
 
 This workflow is commonly called from `repository_dispatch` handlers in storefront repos.
 
+Ref → resolved environment mapping:
+- `production` / `refs/heads/production` → `production` (promote + CSP + Fastly + New Relic)
+- `staging` / `refs/heads/staging` → `staging` (CSP + Fastly; no promote)
+- `canary` / `refs/heads/canary` → `canary` (same behaviour as staging)
+- `upgrade` / `refs/heads/upgrade` → `upgrade` (CSP + Fastly; no promote)
+- anything else → payload `environment`/`target`, or `preview`
+
+`vercel env pull` uses the resolved environment name, with a fallback to `preview` when that custom environment does not exist in Vercel (as for `canary` and `upgrade` today).
+
 ---
 
 ### `horizon-storefront-npm-publish.yml`
