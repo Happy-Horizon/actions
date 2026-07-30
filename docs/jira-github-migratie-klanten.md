@@ -35,7 +35,7 @@ Uitgebreide klantuitleg: [`waarom-github-deployment.md`](./waarom-github-deploym
 
 2. **Deployconfiguratie in projectrepo**
    - `deploy.settings.yml` (staging + production: domain, servers, `deploy_image`, optioneel `nginx_config` / `cron_config`)
-   - Dunne `deploy.php` stub (toolkit wordt at runtime uit `happy-horizon/actions` geladen)
+   - Geen `deploy.php` in de projectrepo — CI kopieert `horizon-deploy/deploy.php` uit `happy-horizon/actions` naar de projectroot
 
 3. **Hypernode**
    - Deploy-SSH-sleutel autoriseren op staging + production

@@ -6,7 +6,9 @@ This directory contains reusable and project-level GitHub Actions workflows used
 
 ### `horizon-backend-hypernode-build.yml`
 
-Reusable workflow for Magento backend builds via `hypernode-deploy`. Uploads `build/build.tgz` as a workflow artifact for later deploy promotion.
+Reusable workflow for Magento backend builds via `hypernode-deploy`. Uploads `build/build.tgz` to the stage Hypernode at `/data/web/builds/<artifact_name>.tgz` (atomic overwrite; only the latest build is kept).
+
+Host is taken from `environments.<deploy_stage>.servers[0].hostname` in `deploy.settings.yml`.
 
 #### Basic usage
 
@@ -29,9 +31,8 @@ jobs:
 - `toolkit_repository` (optional): repository that contains `horizon-deploy/`, default `happy-horizon/actions`
 - `toolkit_ref` (optional): toolkit branch/tag, default `production`
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
-- `artifact_name` (optional): artifact name; defaults to `deployment-build-<deploy_stage>`
-- `artifact_path` (optional): path to upload, default `build/build.tgz`
-- `artifact_retention_days` (optional): retention in days, default `7`
+- `artifact_name` (optional): remote basename under `/data/web/builds/`; defaults to `deployment-build-<deploy_stage>`
+- `artifact_path` (optional): local path to upload, default `build/build.tgz`
 
 #### Secrets
 
@@ -123,36 +124,35 @@ jobs:
 ```yaml
 on:
   workflow_dispatch:
-    inputs:
-      run_id:
-        required: true
-        type: string
 
 jobs:
   deploy:
+    permissions:
+      contents: read
     concurrency: production
-    environment:
-      name: production
     uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
     with:
       deploy_stage: production
-      deploy_image: quay.io/hypernode/deploy:latest-php8.4-node22
       artifact_name: deployment-build-production
-      artifact_run_id: ${{ inputs.run_id }}
       toolkit_repository: happy-horizon/actions
+      environment_name: production
     secrets: inherit
 ```
+
+When `artifact_name` is set, the workflow downloads the latest
+`/data/web/builds/<artifact_name>.tgz` from the stage Hypernode into
+`build/build.tgz` before deploying. Builds overwrite that single file, so only
+the latest build is available for promotion.
 
 #### Inputs
 
 - `deploy_stage` (required): target stage name from `deploy.settings.yml` (for example: `staging`, `production`, `acceptance`)
 - `deploy_image` (optional): explicit container image override
 - `deploy_image_fallback` (optional): fallback image if no override is found
-- `toolkit_repository` (optional): repository that contains `horizon-deploy/`
+- `toolkit_repository` (optional): repository that contains `horizon-deploy/`, default `happy-horizon/actions`
 - `toolkit_ref` (optional): toolkit branch/tag, default `production`
 - `toolkit_path_in_repo` (optional): path to toolkit root, default `horizon-deploy`
-- `artifact_name` (optional): artifact name to download into `build/`
-- `artifact_run_id` (optional): run ID used for artifact download
+- `artifact_name` (optional): basename of the Hypernode build under `/data/web/builds/<name>.tgz`
 - `enable_preview_environment` (optional, default `false`): opt-in switch for `acceptance`/Brancher preview deployments
 - `environment_name` / `environment_url` (optional): caller-level metadata only if you decide to pass it
 
@@ -163,7 +163,7 @@ jobs:
 - `COMPOSER_PROCESS_TIMEOUT` (optional)
 - `MAINTENANCE_IP_WHITELIST` (optional)
 - `HYPERNODE_API_TOKEN` (optional)
-- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`). Cross-run artifact download uses the built-in `GITHUB_TOKEN`, so the deploy job is granted `actions: read`.
+- `GH_TOKEN` (optional, used to check out the private toolkit repo; falls back to `GITHUB_TOKEN`)
 
 #### Outputs
 
@@ -196,6 +196,59 @@ Reusable/publish workflow related to Horizon storefront npm release operations.
 
 Repository-dispatch trigger workflow for Vercel deployment events.
 
+## Composite actions
+
+### `setup-composer-ssh`
+
+Installs `SSH_PRIVATE_KEY` (raw PEM or base64) and trusts hosts so Composer can
+clone private Git repositories (`gitlab.hyva.io`, `github.com` by default).
+
+Used automatically before `composer install` in:
+- `horizon-backend-magento-ci.yml`
+- `horizon-backend-magento-integration-tests.yml`
+
+Call directly from a project workflow when needed (e.g. a local DI-compile job):
+
+```yaml
+- uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+  with:
+    ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+```
+
+Requires the same `SSH_PRIVATE_KEY` repo secret as Hypernode deploys, with read
+access to any private Git Composer sources (Hyvä GitLab, etc.).
+
+---
+
+### `horizon-backend-magento-ci.yml`
+
+Reusable Magento backend CI. Jobs:
+
+- **Static Code Scans** — Experius testsuite static scans
+- **Magento DI compile** — `setup:di:compile` with a throwaway `env.php` (no DB), to catch DI fatals before Hypernode build
+
+```yaml
+jobs:
+  magento-ci:
+    uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
+    with:
+      php_version: '8.4'
+      # run_di_compile: false  # optional opt-out
+    secrets: inherit
+```
+
+#### Inputs
+
+- `php_version` (optional, default `8.2`)
+- `php_extensions` (optional)
+- `scan_path` (optional, default `app/code`)
+- `run_di_compile` (optional, default `true`)
+
+#### Secrets
+
+- `SSH_PRIVATE_KEY` (optional; required for private Git Composer deps)
+- `DEPLOY_COMPOSER_AUTH` (optional)
+
 ## Conventions
 
 - Keep workflows reusable-first where possible.
@@ -207,3 +260,4 @@ Repository-dispatch trigger workflow for Vercel deployment events.
 
 - Magento deploy settings are expected in project `deploy.settings.yml`.
 - Shared deploy defaults/tooling are in `horizon-deploy/` (typically in this `actions` repo).
+- Reusable build/deploy workflows check out that toolkit and copy `horizon-deploy/deploy.php` to the Magento project root before running `hypernode-deploy`.

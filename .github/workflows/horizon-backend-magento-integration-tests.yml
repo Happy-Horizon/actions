@@ -30,6 +30,9 @@ on:
         default: magento2
         description: MySQL database user
     secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+        description: Same key as Hypernode deploys; needed to clone private Git Composer repos (e.g. gitlab.hyva.io)
       DEPLOY_COMPOSER_AUTH:
         required: false
       TESTS_DB_PASSWORD:
@@ -79,6 +82,11 @@ jobs:
           php-version: ${{ inputs.php_version }}
           extensions: ${{ inputs.php_extensions }}
           coverage: none
+
+      - name: Setup SSH for private Composer Git repos
+        uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Cache Composer dependencies
         uses: actions/cache@v4

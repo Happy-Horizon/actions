@@ -10,18 +10,22 @@
 #         toolkit_repository: happy-horizon/actions
 #       secrets: inherit
 #
-# For production with a pre-built artifact:
+# For production with a pre-built artifact (latest on Hypernode):
 #
 #   jobs:
 #     deploy:
+#       permissions:
+#         contents: read
 #       uses: happy-horizon/actions/.github/workflows/horizon-backend-hypernode-deploy.yml@production
 #       with:
 #         deploy_stage: production
 #         artifact_name: deployment-build-production
-#         artifact_run_id: ${{ inputs.run_id }}
 #         toolkit_repository: happy-horizon/actions
 #         environment_name: production
 #       secrets: inherit
+#
+# When artifact_name is set, downloads /data/web/builds/<artifact_name>.tgz
+# from the stage Hypernode (always the latest overwritten build).
 #
 # deploy.settings.yml + layering docs: horizon-deploy/README.md
 
@@ -42,12 +46,12 @@ on:
           from deploy.settings.yml when set, otherwise deploy_image_fallback.
       deploy_image_fallback:
         type: string
-        default: quay.io/hypernode/deploy:4-php8.2-node18
+        default: quay.io/hypernode/deploy:4.8.0-php8.4-node22
         description: Used when deploy_image is empty and the stage has no deploy_image in deploy.settings.yml
       toolkit_repository:
         type: string
         description: Repo that contains horizon-deploy/ (leave empty to use only the calling repo)
-        default: ""
+        default: happy-horizon/actions
       toolkit_ref:
         type: string
         default: production
@@ -59,13 +63,9 @@ on:
         type: string
         default: ""
         description: >
-          Name of a pre-built artifact to download before deploying. When set, the artifact
-          is downloaded into build/ using artifact_run_id as the source run. Intended for
-          production promotion flows where build and deploy are separate workflow runs.
-      artifact_run_id:
-        type: string
-        default: ""
-        description: Workflow run ID to download the artifact from (required when artifact_name is set)
+          Basename of a pre-built artifact on the Hypernode (/data/web/builds/<name>.tgz).
+          When set, downloads that latest tarball into build/build.tgz before deploying.
+          Intended for production promotion flows where build and deploy are separate runs.
       enable_preview_environment:
         type: boolean
         default: false
@@ -97,7 +97,7 @@ on:
       HYPERNODE_API_TOKEN:
         required: false
       GH_TOKEN:
-        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset. Cross-run artifact download uses GITHUB_TOKEN with actions:read.
+        description: PAT to clone the private toolkit repo (optional). Falls back to GITHUB_TOKEN when unset.
         required: false
 
 jobs:
@@ -108,7 +108,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      actions: read
     environment:
       name: ${{ inputs.environment_name || inputs.deploy_stage }}
       url: ${{ inputs.environment_url }}
@@ -125,14 +124,58 @@ jobs:
           path: _horizon_deploy_toolkit
           token: ${{ secrets.GH_TOKEN || github.token }}
 
-      - name: Download build artifact
+      - name: Install deploy.php at project root
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.toolkit_repository }}" ]; then
+            SRC="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          else
+            SRC="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "deploy.php not found in toolkit at ${SRC}"
+            exit 1
+          fi
+          cp "$SRC" "${GITHUB_WORKSPACE}/deploy.php"
+          echo "Installed deploy.php from ${SRC}"
+
+      - name: Download build artifact from Hypernode
         if: inputs.artifact_name != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.artifact_name }}
-          path: build/
-          github-token: ${{ github.token }}
-          run-id: ${{ inputs.artifact_run_id }}
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          STAGE: ${{ inputs.deploy_stage }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name }}
+        run: |
+          set -euo pipefail
+
+          HOST=$(ruby -ryaml -e "d=YAML.load_file('deploy.settings.yml') rescue {}; v=d.dig('environments', ENV['STAGE'], 'servers', 0, 'hostname'); puts(v.nil? || v.to_s.strip.empty? ? '' : v.to_s.strip)")
+          if [ -z "$HOST" ]; then
+            echo "No hostname found in deploy.settings.yml for environments.${STAGE}.servers[0].hostname"
+            exit 1
+          fi
+
+          REMOTE_FILE="/data/web/builds/${ARTIFACT_NAME}.tgz"
+          LOCAL_PATH="build/build.tgz"
+
+          # Match hypernode-deploy: SSH_PRIVATE_KEY is usually base64-encoded.
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          KEY_FILE="$HOME/.ssh/id_rsa"
+          if printf '%s' "$SSH_PRIVATE_KEY" | grep -qE 'BEGIN (OPENSSH|RSA) PRIVATE KEY'; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_FILE"
+          else
+            printf '%s' "$SSH_PRIVATE_KEY" | tr -d '\r\n' | base64 -d > "$KEY_FILE"
+          fi
+          # OpenSSH requires a trailing newline on the key file.
+          [ -n "$(tail -c1 "$KEY_FILE" || true)" ] && printf '\n' >> "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes)
+
+          mkdir -p build
+          echo "Downloading app@${HOST}:${REMOTE_FILE} -> ${LOCAL_PATH}"
+          scp "${SSH_OPTS[@]}" "app@${HOST}:${REMOTE_FILE}" "$LOCAL_PATH"
+          ls -lh "$LOCAL_PATH"
 
       - name: Resolve deploy image
         id: resolve_image
@@ -164,11 +207,16 @@ jobs:
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
-          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          # Paths must be container paths: workspace is mounted at /build.
+          BOOT="/build/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="/build/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
           if [ -n "${{ inputs.toolkit_repository }}" ]; then
-            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+            BOOT="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          if [ ! -f "${GITHUB_WORKSPACE}${BOOT#/build}" ]; then
+            echo "horizon-deploy bootstrap not found at ${BOOT} (host: ${GITHUB_WORKSPACE}${BOOT#/build})"
+            exit 1
           fi
           export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
           export HORIZON_DEPLOY_DEFAULTS="$DEF"
@@ -196,11 +244,16 @@ jobs:
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
-          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          # Paths must be container paths: workspace is mounted at /build.
+          BOOT="/build/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="/build/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
           if [ -n "${{ inputs.toolkit_repository }}" ]; then
-            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+            BOOT="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          if [ ! -f "${GITHUB_WORKSPACE}${BOOT#/build}" ]; then
+            echo "horizon-deploy bootstrap not found at ${BOOT} (host: ${GITHUB_WORKSPACE}${BOOT#/build})"
+            exit 1
           fi
           export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
           export HORIZON_DEPLOY_DEFAULTS="$DEF"

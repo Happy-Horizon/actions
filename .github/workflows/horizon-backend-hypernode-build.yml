@@ -10,6 +10,9 @@
 #         artifact_name: deployment-build-production
 #         toolkit_repository: happy-horizon/actions
 #       secrets: inherit
+#
+# Uploads build/build.tgz to the stage Hypernode at
+# /data/web/builds/<artifact_name>.tgz (atomic overwrite; only latest kept).
 
 name: Reusable Hypernode Magento build
 
@@ -28,7 +31,7 @@ on:
           from deploy.settings.yml when set, otherwise deploy_image_fallback.
       deploy_image_fallback:
         type: string
-        default: quay.io/hypernode/deploy:4-php8.2-node18
+        default: quay.io/hypernode/deploy:4.8.0-php8.4-node22
         description: Used when deploy_image is empty and the stage has no deploy_image in deploy.settings.yml
       toolkit_repository:
         type: string
@@ -44,13 +47,13 @@ on:
       artifact_name:
         type: string
         default: ""
-        description: Artifact name for build/build.tgz. When empty, defaults to deployment-build-<deploy_stage>.
+        description: >
+          Remote artifact basename under /data/web/builds/. When empty, defaults to
+          deployment-build-<deploy_stage>. Stored as <name>.tgz (overwrites previous).
       artifact_path:
         type: string
         default: build/build.tgz
-      artifact_retention_days:
-        type: number
-        default: 7
+        description: Local path of the build tarball to upload
     secrets:
       SSH_PRIVATE_KEY:
         required: true
@@ -80,6 +83,21 @@ jobs:
           path: _horizon_deploy_toolkit
           token: ${{ secrets.GH_TOKEN || github.token }}
 
+      - name: Install deploy.php at project root
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.toolkit_repository }}" ]; then
+            SRC="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          else
+            SRC="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/deploy.php"
+          fi
+          if [ ! -f "$SRC" ]; then
+            echo "deploy.php not found in toolkit at ${SRC}"
+            exit 1
+          fi
+          cp "$SRC" "${GITHUB_WORKSPACE}/deploy.php"
+          echo "Installed deploy.php from ${SRC}"
+
       - name: Resolve deploy image
         id: resolve_image
         env:
@@ -103,11 +121,16 @@ jobs:
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
           set -e
-          BOOT="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-          DEF="${GITHUB_WORKSPACE}/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          # Paths must be container paths: workspace is mounted at /build.
+          BOOT="/build/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+          DEF="/build/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
           if [ -n "${{ inputs.toolkit_repository }}" ]; then
-            BOOT="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
-            DEF="${GITHUB_WORKSPACE}/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+            BOOT="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/bootstrap.php"
+            DEF="/build/_horizon_deploy_toolkit/${{ inputs.toolkit_path_in_repo }}/defaults/magento2.yml"
+          fi
+          if [ ! -f "${GITHUB_WORKSPACE}${BOOT#/build}" ]; then
+            echo "horizon-deploy bootstrap not found at ${BOOT} (host: ${GITHUB_WORKSPACE}${BOOT#/build})"
+            exit 1
           fi
           export HORIZON_DEPLOY_BOOTSTRAP="$BOOT"
           export HORIZON_DEPLOY_DEFAULTS="$DEF"
@@ -123,9 +146,47 @@ jobs:
             "${{ steps.resolve_image.outputs.image }}" \
             hypernode-deploy build -vvv
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.artifact_name || format('deployment-build-{0}', inputs.deploy_stage) }}
-          path: ${{ inputs.artifact_path }}
-          retention-days: ${{ inputs.artifact_retention_days }}
+      - name: Upload build artifact to Hypernode
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          STAGE: ${{ inputs.deploy_stage }}
+          ARTIFACT_NAME: ${{ inputs.artifact_name || format('deployment-build-{0}', inputs.deploy_stage) }}
+          ARTIFACT_PATH: ${{ inputs.artifact_path }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$ARTIFACT_PATH" ]; then
+            echo "Build artifact not found at ${ARTIFACT_PATH}"
+            exit 1
+          fi
+
+          HOST=$(ruby -ryaml -e "d=YAML.load_file('deploy.settings.yml') rescue {}; v=d.dig('environments', ENV['STAGE'], 'servers', 0, 'hostname'); puts(v.nil? || v.to_s.strip.empty? ? '' : v.to_s.strip)")
+          if [ -z "$HOST" ]; then
+            echo "No hostname found in deploy.settings.yml for environments.${STAGE}.servers[0].hostname"
+            exit 1
+          fi
+
+          REMOTE_DIR="/data/web/builds"
+          REMOTE_FILE="${REMOTE_DIR}/${ARTIFACT_NAME}.tgz"
+          REMOTE_TMP="${REMOTE_FILE}.tmp"
+
+          # Match hypernode-deploy: SSH_PRIVATE_KEY is usually base64-encoded.
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          KEY_FILE="$HOME/.ssh/id_rsa"
+          if printf '%s' "$SSH_PRIVATE_KEY" | grep -qE 'BEGIN (OPENSSH|RSA) PRIVATE KEY'; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$KEY_FILE"
+          else
+            printf '%s' "$SSH_PRIVATE_KEY" | tr -d '\r\n' | base64 -d > "$KEY_FILE"
+          fi
+          # OpenSSH requires a trailing newline on the key file.
+          [ -n "$(tail -c1 "$KEY_FILE" || true)" ] && printf '\n' >> "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes)
+
+          echo "Uploading ${ARTIFACT_PATH} to app@${HOST}:${REMOTE_FILE} (overwrite latest)"
+          ssh "${SSH_OPTS[@]}" "app@${HOST}" "mkdir -p '${REMOTE_DIR}'"
+          scp "${SSH_OPTS[@]}" "$ARTIFACT_PATH" "app@${HOST}:${REMOTE_TMP}"
+          ssh "${SSH_OPTS[@]}" "app@${HOST}" "mv '${REMOTE_TMP}' '${REMOTE_FILE}'"
+          echo "Stored latest build at app@${HOST}:${REMOTE_FILE}"

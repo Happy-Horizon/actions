@@ -1,19 +1,26 @@
 # Central defaults for Hypernode Deploy (Magento 2). Override or extend from project deploy.settings.yml.
 defaults:
   recipe: magento2
-  php_version: "8.2"
+  # Deployer CLI binary (php8.4 …/bin/magento) AND desired Hypernode platform PHP.
+  # Platform sync is idempotent: hypernode:settings:sync compares live values and
+  # only runs hypernode-systemctl --block (maintenance-wrapped) when they drift.
+  php_version: "8.4"
   public_folder: pub
   magento_dir: null
-  hypernode_settings:
-    - name: php_version
-      value: "8.2"
+  # Extra platform settings (e.g. mysql_version). Same sync + maintenance wrap.
+  # php_version from the scalar above is included automatically; listing it here
+  # again overrides the scalar for the platform sync only.
+  hypernode_settings: []
   variables:
     build:
       static_content_locales: "en_US nl_NL"
       static_content_jobs: 4
+      # Projects should override with a locale map, e.g.
+      #   HappyHorizon/hyva: "en_US nl_NL"
+      #   Magento/backend: "en_US nl_NL"
+      # For Hyvä also set hyva_tailwind_dirs + high_performance_static_deploy (4.8+).
       magento_themes:
         - Magento/backend
-        - Magento/blank
       composer_process_timeout: 300
       env:
         MAGE_MODE: production
@@ -23,7 +30,6 @@ defaults:
       maintenance_ip_whitelist: "${MAINTENANCE_IP_WHITELIST}"
   shared_files:
     - app/etc/env.php
-    - pub/errors/local.xml
     - pub/.user.ini
   shared_folders:
     - pub/sitemaps
@@ -68,12 +74,15 @@ defaults:
     - deploy:vendors
     - deploy:apcu-autoload
     - magento:compile
+    # No-op unless hyva_tailwind_dirs is set (must run before SCD).
+    - hyva:tailwind:build
     - magento:deploy:assets
+    # No-op unless snowdog_frontools_dirs is set (must run after SCD).
+    - snowdog:frontools:styles
   deploy_tasks:
     - magento:maintenance:enable-if-needed
     - magento:config:import
     - magento:upgrade:db
-    - magento:performance:config
     - magento:cache:flush
     - magento:cache:enable
     - magento:maintenance:disable

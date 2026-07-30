@@ -7,6 +7,7 @@
 #       uses: happy-horizon/actions/.github/workflows/horizon-backend-magento-ci.yml@production
 #       with:
 #         php_version: '8.2'
+#         composer_version: '2.2'   # Magento ≤2.4.3 needs Composer 2.2 LTS
 #         scan_path: app/code
 #       secrets: inherit
 
@@ -19,15 +20,30 @@ on:
         type: string
         default: '8.2'
         description: PHP version to use for the CI jobs
+      composer_version:
+        type: string
+        default: '2'
+        description: >
+          Composer version for shivammathur/setup-php tools (e.g. 2, 2.2).
+          Use 2.2 for Magento ≤2.4.3 (laminas-dependency-plugin needs composer-plugin-api <2.3).
       php_extensions:
         type: string
-        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql
+        default: mbstring, xml, curl, zip, gd, intl, bcmath, soap, pdo_mysql, xsl, sockets
         description: PHP extensions to install
       scan_path:
         type: string
         default: app/code
         description: Path passed to the static scan script (relative to repo root)
+      run_di_compile:
+        type: boolean
+        default: true
+        description: >
+          Run setup:di:compile with a throwaway env.php (no DB) to catch DI fatals
+          before Hypernode build.
     secrets:
+      SSH_PRIVATE_KEY:
+        required: false
+        description: Same key as Hypernode deploys; needed to clone private Git Composer repos (e.g. gitlab.hyva.io)
       DEPLOY_COMPOSER_AUTH:
         required: false
 
@@ -45,6 +61,12 @@ jobs:
           php-version: ${{ inputs.php_version }}
           extensions: ${{ inputs.php_extensions }}
           coverage: none
+          tools: composer:${{ inputs.composer_version }}
+
+      - name: Setup SSH for private Composer Git repos
+        uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Cache Composer dependencies
         uses: actions/cache@v4
@@ -58,6 +80,119 @@ jobs:
         run: composer install --prefer-dist --no-progress
         env:
           COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
+          COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
       - name: Run static code scans
         run: bash ./vendor/experius/module-testsuite/Test/static/run.sh ${{ inputs.scan_path }}
+
+  # Catches Symfony Command::execute(): int incompatibilities (and other DI fatals)
+  # before Hypernode build runs magento:compile. Requires a throwaway env.php; no DB needed.
+  di-compile:
+    name: Magento DI compile
+    if: ${{ inputs.run_di_compile }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.php_extensions }}
+          coverage: none
+          ini-values: memory_limit=2G
+          tools: composer:${{ inputs.composer_version }}
+
+      - name: Setup SSH for private Composer Git repos
+        uses: happy-horizon/actions/.github/actions/setup-composer-ssh@production
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-di-${{ hashFiles('**/composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-di-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+        env:
+          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
+          COMPOSER_PROCESS_TIMEOUT: 0
+          COMPOSER_NO_INTERACTION: 1
+          COMPOSER_NO_AUDIT: 1
+          # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
+          COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
+
+      - name: Create minimal env.php for compile
+        run: |
+          cat > app/etc/env.php <<'PHP'
+          <?php
+          return [
+              'backend' => ['frontName' => 'admin'],
+              'crypt' => ['key' => '00000000000000000000000000000000'],
+              'db' => [
+                  'table_prefix' => '',
+                  'connection' => [
+                      'default' => [
+                          'host' => '127.0.0.1',
+                          'dbname' => 'magento',
+                          'username' => 'magento',
+                          'password' => 'magento',
+                          'model' => 'mysql4',
+                          'engine' => 'innodb',
+                          'initStatements' => 'SET NAMES utf8;',
+                          'active' => '1',
+                      ],
+                  ],
+              ],
+              'resource' => ['default_setup' => ['connection' => 'default']],
+              'x-frame-options' => 'SAMEORIGIN',
+              'MAGE_MODE' => 'production',
+              'session' => ['save' => 'files'],
+              'cache' => [
+                  'frontend' => [
+                      'default' => ['id_prefix' => 'ci_'],
+                      'page_cache' => ['id_prefix' => 'ci_'],
+                  ],
+              ],
+              'lock' => ['provider' => 'db', 'config' => ['prefix' => '']],
+              'cache_types' => [
+                  'config' => 1,
+                  'layout' => 1,
+                  'block_html' => 1,
+                  'collections' => 1,
+                  'reflection' => 1,
+                  'db_ddl' => 1,
+                  'compiled_config' => 1,
+                  'eav' => 1,
+                  'customer_notification' => 1,
+                  'config_integration' => 1,
+                  'config_integration_api' => 1,
+                  'full_page' => 1,
+                  'config_webservice' => 1,
+                  'translate' => 1,
+              ],
+              'install' => ['date' => 'Thu, 01 Jan 1970 00:00:00 +0000'],
+          ];
+          PHP
+
+      - name: Run setup:di:compile
+        run: |
+          set -uo pipefail
+          # Compile does not need a live DB, but Magento may still exit non-zero afterward
+          # with SQLSTATE connection refused (shutdown/cache). Pass on the success marker.
+          # Fail hard when that marker is missing (e.g. PHP fatals under Symfony 7).
+          MAGE_MODE=production php -d memory_limit=2G bin/magento setup:di:compile 2>&1 | tee di-compile.log || true
+          set -e
+          grep -q 'Generated code and dependency injection configuration successfully' di-compile.log
+          test -d generated/code
+          test -d generated/metadata

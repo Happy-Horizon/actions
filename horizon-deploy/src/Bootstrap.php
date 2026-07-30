@@ -6,8 +6,8 @@ namespace HappyHorizon\Deploy;
 
 use Hypernode\DeployConfiguration\Configuration;
 use Hypernode\DeployConfiguration\PlatformConfiguration\CronConfiguration;
-use Hypernode\DeployConfiguration\PlatformConfiguration\HypernodeSettingConfiguration;
 use Symfony\Component\Yaml\Yaml;
+use function Deployer\after;
 use function Deployer\commandExist;
 use function Deployer\desc;
 use function Deployer\get;
@@ -15,6 +15,7 @@ use function Deployer\run;
 use function Deployer\task;
 use function Deployer\upload;
 use function Deployer\warning;
+use function Deployer\writeln;
 
 final class Bootstrap
 {
@@ -76,6 +77,18 @@ final class Bootstrap
 
     private static function registerDeployerTasks(): void
     {
+        desc('Installs or updates ~/.hypernode/brancher-install-hook from the project repository');
+        task('hypernode:install_brancher_hook', function () {
+            $hookSource = '{{release_path}}/.hypernode/brancher-install-hook';
+            $hookDest   = '~/.hypernode/brancher-install-hook';
+
+            run("if [ ! -f {$hookSource} ]; then echo 'brancher-install-hook not found in release – skipping.'; exit 0; fi");
+            run("mkdir -p ~/.hypernode");
+            run("cp {$hookSource} {$hookDest}");
+            run("chmod +x {$hookDest}");
+            run("echo 'brancher-install-hook installed at {$hookDest}'");
+        });
+
         desc('Enables maintenance mode');
         task('magento:maintenance:enable', function () {
             try {
@@ -115,7 +128,13 @@ final class Bootstrap
                 warning('hypernode:nginx:sync: nginx_config_path is not set, skipping.');
                 return;
             }
-            upload(rtrim($path, '/') . '/', '/data/web/nginx/', [
+            $local = rtrim($path, '/');
+            // upload() reads from the local build/deploy workspace (e.g. /build/...).
+            if (!is_dir($local)) {
+                warning("hypernode:nginx:sync: {$path} does not exist locally, skipping.");
+                return;
+            }
+            upload($local . '/', '/data/web/nginx/', [
                 'options' => ['--exclude=ssl/', '--delete'],
             ]);
         });
@@ -125,28 +144,104 @@ final class Bootstrap
             run('cd {{release_or_current_path}} && {{bin/composer}} dump-autoload --optimize --apcu 2>&1');
         });
 
-        desc('Sets Magento performance configuration for production (CSS/JS/sign/translate)');
-        task('magento:performance:config', function () {
-            $configs = [
-                'dev/static/sign'                   => '1',
-                'dev/css/merge_css_files'            => '1',
-                'dev/css/minify_files'               => '1',
-                'dev/js/enable_js_bundling'          => '0',
-                'dev/js/merge_files'                 => '0',
-                'dev/js/minify_files'                => '0',
-                'dev/js/move_script_to_bottom'       => '1',
-                'dev/translate_inline/active'        => '0',
-                'dev/translate_inline/active_admin'  => '0',
-            ];
-
-            foreach ($configs as $path => $value) {
-                run("{{bin/php}} {{release_or_current_path}}/{{magento_dir}}/bin/magento config:set {$path} {$value}");
-            }
-        });
-
         desc('Enables all Magento caches');
         task('magento:cache:enable', function () {
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento cache:enable; fi");
+        });
+
+        desc('Builds Hyvä Tailwind CSS (npm) before static content deploy');
+        task('hyva:tailwind:build', function () {
+            try {
+                $dirs = get('hyva_tailwind_dirs');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $dirs = [];
+            }
+            if (!is_array($dirs) || $dirs === []) {
+                return;
+            }
+
+            foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
+                $dir = trim($dir, '/');
+                run("cd {{release_or_current_path}}/{$dir} && npm ci && npm run build");
+            }
+        });
+
+        desc('Builds Snowdog frontools styles (gulp) after static content deploy');
+        task('snowdog:frontools:styles', function () {
+            try {
+                $dirs = get('snowdog_frontools_dirs');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $dirs = [];
+            }
+            if (!is_array($dirs) || $dirs === []) {
+                return;
+            }
+
+            try {
+                $gulpArgs = get('snowdog_frontools_gulp_args');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $gulpArgs = 'styles --ci --prod --disableMaps';
+            }
+            if (!is_string($gulpArgs) || trim($gulpArgs) === '') {
+                $gulpArgs = 'styles --ci --prod --disableMaps';
+            }
+
+            foreach ($dirs as $dir) {
+                if (!is_string($dir) || $dir === '') {
+                    continue;
+                }
+                $dir = trim($dir, '/');
+                // Match classic deploy.sh: npm install + local gulp binary (not npx).
+                // Transitive phantomjs needs bzip2 to unpack *.tar.bz2; deploy images omit it.
+                // Older phantomjs packages ignore PHANTOMJS_SKIP_DOWNLOAD — install bzip2.
+                // Snowdog frontools 1.8 / node-sass need Node 12 (prebuilt bindings); images
+                // often ship Node 16/18 and then node-gyp rebuild fails on Python 3.
+                try {
+                    $nodeVersion = get('snowdog_frontools_node_version');
+                } catch (\Deployer\Exception\ConfigurationException $e) {
+                    $nodeVersion = '12.22.12';
+                }
+                if (!is_string($nodeVersion) || !preg_match('/^\d+(?:\.\d+){0,2}$/', $nodeVersion)) {
+                    $nodeVersion = '12.22.12';
+                }
+                $nodeMajor = explode('.', $nodeVersion)[0];
+
+                run(
+                    'if ! command -v bzip2 >/dev/null 2>&1; then '
+                    . 'if command -v apt-get >/dev/null 2>&1; then '
+                    . 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bzip2; '
+                    . 'elif command -v yum >/dev/null 2>&1; then '
+                    . 'yum install -y -q bzip2; '
+                    . 'fi; '
+                    . 'fi'
+                );
+                // Use the .tar.gz dist (not .tar.xz): deploy images lack the xz binary.
+                run(
+                    'set -e; '
+                    . 'NODE_MAJOR=' . escapeshellarg($nodeMajor) . '; '
+                    . 'NODE_VERSION=' . escapeshellarg($nodeVersion) . '; '
+                    . 'if ! node -v 2>/dev/null | grep -qE "^v${NODE_MAJOR}\\."; then '
+                    . 'NODE_HOME="/tmp/horizon-node${NODE_MAJOR}"; '
+                    . 'if [ ! -x "${NODE_HOME}/bin/node" ]; then '
+                    . 'mkdir -p "${NODE_HOME}"; '
+                    . 'curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.gz" '
+                    . '| tar -xz -C "${NODE_HOME}" --strip-components=1; '
+                    . 'fi; '
+                    . 'export PATH="${NODE_HOME}/bin:${PATH}"; '
+                    . 'fi; '
+                    . 'node -v | grep -qE "^v${NODE_MAJOR}\\." '
+                    . '|| { echo "ERROR: node $(node -v) on PATH, need v${NODE_MAJOR}.x for frontools"; exit 1; }; '
+                    . 'echo "Using node $(node -v) / npm $(npm -v)"; '
+                    . "cd {{release_or_current_path}}/{$dir}"
+                    . ' && PHANTOMJS_SKIP_DOWNLOAD=true'
+                    . ' npm_config_phantomjs_skip_download=true'
+                    . ' npm install'
+                    . ' && node_modules/gulp/bin/gulp.js ' . $gulpArgs
+                );
+            }
         });
 
         desc('Installs vendors');
@@ -155,14 +250,113 @@ final class Bootstrap
                 warning('To speed up composer installation setup "unzip" command with PHP zip extension.');
             }
 
+            // Magento <=2.4.3 needs Composer 2.2 LTS (laminas-dependency-plugin
+            // requires composer-plugin-api <2.3). Deploy images often ship newer Composer.
+            try {
+                $composerSelfUpdate = get('composer_self_update');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $composerSelfUpdate = null;
+            }
+            if (is_string($composerSelfUpdate) && preg_match('/^\d+(?:\.\d+)?$/', $composerSelfUpdate) === 1) {
+                run("{{bin/composer}} self-update --{$composerSelfUpdate} 2>&1");
+            }
+
             try {
                 $composerTimeout = get('composer_process_timeout') ?: 300;
             } catch (\Deployer\Exception\ConfigurationException $exception) {
                 $composerTimeout = 300;
             }
 
-            run("cd {{release_or_current_path}} && COMPOSER_PROCESS_TIMEOUT=$composerTimeout {{bin/composer}} {{composer_action}} {{composer_options}} 2>&1");
+            // PHP <8 + recent Composer: weltpixel/etc tar dists need this override.
+            run(
+                "cd {{release_or_current_path}}"
+                . " && COMPOSER_ALLOW_UNSAFE_PHAR_METADATA=1"
+                . " COMPOSER_PROCESS_TIMEOUT=$composerTimeout"
+                . " {{bin/composer}} {{composer_action}} {{composer_options}} 2>&1"
+            );
         });
+
+        desc('Applies Hypernode platform settings only when they drift (maintenance-wrapped)');
+        task('hypernode:settings:sync', function () {
+            try {
+                $settings = get('horizon_hypernode_settings');
+            } catch (\Deployer\Exception\ConfigurationException $e) {
+                $settings = [];
+            }
+            if (!is_array($settings) || $settings === []) {
+                return;
+            }
+
+            $toApply = [];
+            foreach ($settings as $row) {
+                if (!is_array($row) || !isset($row['name'], $row['value'])) {
+                    continue;
+                }
+                $name = (string) $row['name'];
+                $desired = (string) $row['value'];
+                if ($name === '' || $desired === '') {
+                    continue;
+                }
+                if (!preg_match('/^[A-Za-z0-9_]+$/', $name) || !preg_match('/^[A-Za-z0-9._-]+$/', $desired)) {
+                    warning("hypernode:settings:sync: skipping unsafe setting {$name}={$desired}");
+                    continue;
+                }
+
+                try {
+                    $output = run("hypernode-systemctl settings {$name}");
+                } catch (\Throwable $e) {
+                    warning("hypernode:settings:sync: could not read {$name} ({$e->getMessage()}); assuming drift");
+                    $output = '';
+                }
+                $current = null;
+                if (preg_match('/is set to value\s+(\S+)/i', $output, $m)) {
+                    $current = $m[1];
+                }
+                if ($current !== null && $current === $desired) {
+                    writeln("<info>hypernode:settings:sync: {$name} already {$desired}</info>");
+                    continue;
+                }
+
+                $toApply[] = ['name' => $name, 'value' => $desired, 'current' => $current];
+            }
+
+            if ($toApply === []) {
+                return;
+            }
+
+            foreach ($toApply as $row) {
+                $from = $row['current'] ?? '(unknown)';
+                writeln("<comment>hypernode:settings:sync: {$row['name']} {$from} → {$row['value']}</comment>");
+            }
+
+            // Use the node's default `php` binary for the maintenance wrap:
+            // {{bin/php}} points at the *desired* PHP version, which is not
+            // installed until after the platform update completes.
+            $maintenance = function (string $action): void {
+                $flags = '';
+                if ($action === 'enable') {
+                    try {
+                        $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
+                    } catch (\Deployer\Exception\ConfigurationException $e) {
+                        $ipWhitelist = [];
+                    }
+                    foreach ($ipWhitelist as $ip) {
+                        $flags .= " --ip={$ip}";
+                    }
+                }
+                run("if [ -d $(echo {{current_path}}) ]; then php {{current_path}}/{{magento_dir}}/bin/magento maintenance:{$action}{$flags}; fi");
+            };
+
+            $maintenance('enable');
+            try {
+                foreach ($toApply as $row) {
+                    run("yes | hypernode-systemctl settings {$row['name']} {$row['value']} --block");
+                }
+            } finally {
+                $maintenance('disable');
+            }
+        });
+        after('deploy:setup', 'hypernode:settings:sync');
     }
 
     /**
@@ -298,6 +492,41 @@ final class Bootstrap
     }
 
     /**
+     * Drop nested shared paths when a parent is also shared.
+     * Deployer rejects e.g. sharing both `var` and `var/export`.
+     *
+     * @param array<int|string, mixed> $paths
+     * @return list<string>
+     */
+    private static function filterNestedSharedPaths(array $paths): array
+    {
+        $normalized = [];
+        foreach ($paths as $path) {
+            if (!is_string($path) || $path === '') {
+                continue;
+            }
+            $normalized[] = trim(str_replace('\\', '/', $path), '/');
+        }
+        $normalized = array_values(array_unique($normalized));
+
+        $kept = [];
+        foreach ($normalized as $path) {
+            $isNested = false;
+            foreach ($normalized as $other) {
+                if ($other !== $path && str_starts_with($path . '/', $other . '/')) {
+                    $isNested = true;
+                    break;
+                }
+            }
+            if (!$isNested) {
+                $kept[] = $path;
+            }
+        }
+
+        return $kept;
+    }
+
+    /**
      * @param array<string, mixed> $central
      * @param array<string, mixed> $project
      * @return array<string, mixed>
@@ -305,6 +534,18 @@ final class Bootstrap
     private static function mergeVariablesLayers(array $central, array $project): array
     {
         $out = $central;
+        // Keys that must replace (not array_merge) so a locale-map of themes
+        // does not keep leftover numeric Magento/blank entries from defaults.
+        $replaceKeys = [
+            'magento_themes',
+            'magento_themes_backend',
+            'hyva_tailwind_dirs',
+            'snowdog_frontools_dirs',
+            'snowdog_frontools_gulp_args',
+            'snowdog_frontools_node_version',
+            'composer_self_update',
+        ];
+
         foreach (['all', 'build', 'deploy'] as $stage) {
             if (!isset($project[$stage]) || !is_array($project[$stage])) {
                 continue;
@@ -313,6 +554,11 @@ final class Bootstrap
                 $out[$stage] = [];
             }
             $out[$stage] = array_merge($out[$stage], $project[$stage]);
+            foreach ($replaceKeys as $key) {
+                if (\array_key_exists($key, $project[$stage])) {
+                    $out[$stage][$key] = $project[$stage][$key];
+                }
+            }
         }
 
         return $out;
@@ -382,12 +628,20 @@ final class Bootstrap
             'build_tasks',
             'deploy_tasks',
             'hypernode_settings',
-            'variables',
         ];
         foreach ($arrayReplaceKeys as $key) {
             if (\array_key_exists($key, $envBlock) && is_array($envBlock[$key])) {
                 $defaults[$key] = $envBlock[$key];
             }
+        }
+
+        // Deep-merge variables buckets so a stage can set e.g. deploy.deploy_path
+        // without wiping build.env.MAGE_MODE / static_content_* from defaults.
+        if (\array_key_exists('variables', $envBlock) && is_array($envBlock['variables'])) {
+            $defaults['variables'] = self::mergeVariablesLayers(
+                isset($defaults['variables']) && is_array($defaults['variables']) ? $defaults['variables'] : [],
+                $envBlock['variables']
+            );
         }
 
         foreach (['recipe', 'php_version', 'public_folder', 'nginx_config', 'cron_config'] as $scalarKey) {
@@ -423,17 +677,32 @@ final class Bootstrap
             $configuration->setVariable('magento_dir', $magentoDir, 'deploy');
         }
 
-        $platform = [];
+        // Platform settings (php_version, mysql_version, …) are applied by
+        // hypernode:settings:sync — idempotent + maintenance-wrapped. Do not
+        // register HypernodeSettingConfiguration here: its built-in task always
+        // runs --block even when already matching and can fail on API 502s.
+        $settingsByName = [];
+        if (preg_match('/^\d+\.\d+$/', $phpVersion)) {
+            $settingsByName['php_version'] = $phpVersion;
+        }
         foreach ($defaults['hypernode_settings'] ?? [] as $row) {
             if (!is_array($row) || !isset($row['name'], $row['value'])) {
                 continue;
             }
-            $platform[] = new HypernodeSettingConfiguration((string) $row['name'], (string) $row['value']);
+            $name = (string) $row['name'];
+            $value = (string) $row['value'];
+            if ($name === '' || $value === '') {
+                continue;
+            }
+            $settingsByName[$name] = $value;
         }
-        if ($platform === [] && isset($defaults['php_version']) && is_string($defaults['php_version']) && $defaults['php_version'] !== '') {
-            $platform[] = new HypernodeSettingConfiguration('php_version', $defaults['php_version']);
+        $horizonSettings = [];
+        foreach ($settingsByName as $name => $value) {
+            $horizonSettings[] = ['name' => $name, 'value' => $value];
         }
+        $configuration->setVariable('horizon_hypernode_settings', $horizonSettings, 'deploy');
 
+        $platform = [];
         $cronConfig = $defaults['cron_config'] ?? null;
         if (is_string($cronConfig) && $cronConfig !== '') {
             $platform[] = new CronConfiguration($cronConfig);
@@ -460,6 +729,12 @@ final class Bootstrap
                     $configuration->setVariable((string) $key, $val, $stage);
                 }
             }
+
+            // Locale-mapped theme lists require split SCD (Hypernode Deploy 4.8+).
+            $buildThemes = $variables['build']['magento_themes'] ?? null;
+            if (is_array($buildThemes) && $buildThemes !== [] && !\array_is_list($buildThemes)) {
+                $configuration->setVariable('split_static_deployment', true, 'build');
+            }
         }
 
         $composerTimeoutEnv = \getenv('COMPOSER_PROCESS_TIMEOUT');
@@ -473,10 +748,8 @@ final class Bootstrap
             }
         }
 
-        foreach ($defaults['shared_folders'] ?? [] as $folder) {
-            if (is_string($folder) && $folder !== '') {
-                $configuration->addSharedFolder($folder);
-            }
+        foreach (self::filterNestedSharedPaths($defaults['shared_folders'] ?? []) as $folder) {
+            $configuration->addSharedFolder($folder);
         }
 
         foreach ($defaults['deploy_excludes'] ?? [] as $exclude) {

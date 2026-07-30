@@ -1,20 +1,21 @@
 # Horizon Hypernode deploy toolkit
 
-Central Magento 2 deploy configuration for [Hypernode Deploy](https://docs.hypernode.com/hypernode-deploy/applications/config-for-magento-2.html). The PHP runtime lives here; each application repo adds a thin `deploy.php` plus **`deploy.settings.yml`** with **environments** (and optional **defaults** overrides).
+Central Magento 2 deploy configuration for [Hypernode Deploy](https://docs.hypernode.com/hypernode-deploy/applications/config-for-magento-2.html). The PHP runtime lives here; each application repo keeps **`deploy.settings.yml`**. CI installs **`deploy.php`** at the Magento project root from this toolkit.
 
 ## Files in this toolkit
 
 | Path | Purpose |
 |------|---------|
+| `deploy.php` | Thin Hypernode entry; copied to the Magento project root by reusable workflows. |
 | `bootstrap.php` | Loads `src/Bootstrap.php` (entry used by `deploy.php`). |
 | `src/Bootstrap.php` | Builds `Hypernode\DeployConfiguration\Configuration` from YAML/JSON. |
 | `defaults/magento2.yml` | Shared defaults (tasks, shared paths, deploy excludes, variables, …). |
 
 ## Quick setup in a new project
 
-1. Copy **`horizon-deploy/`** (or depend on a central repo checkout) and the root **`deploy.php`** stub into the Magento project root.
-2. Add **`deploy.settings.yml`** with at least one **`environments`** entry (see below).
-3. Run deploy with the same stage name as in YAML, e.g. `hypernode-deploy deploy staging`.
+1. Depend on the central checkout (`happy-horizon/actions` → `horizon-deploy/`) via the reusable GitHub workflows, **or** copy **`horizon-deploy/`** into the Magento project for local use.
+2. Add **`deploy.settings.yml`** with at least one **`environments`** entry (see below). Do **not** commit `deploy.php` — CI copies it from this toolkit to the project root.
+3. Run deploy with the same stage name as in YAML, e.g. `hypernode-deploy deploy staging` (after copying `deploy.php` to the project root for local runs).
 4. In CI, set **`DEPLOY_CONFIG_STAGE`** to that stage when you use flags or wrappers that hide the stage from argv (recommended in GitHub Actions).
 
 Optional:
@@ -28,7 +29,7 @@ Optional:
 ```yaml
 # Optional: merged ON TOP of horizon-deploy/defaults/magento2.yml (see “Layering” below)
 defaults:
-  php_version: "8.3"
+  php_version: "8.4"   # Deployer CLI + desired Hypernode platform PHP (synced on drift)
   variables:
     build:
       static_content_jobs: 8
@@ -84,16 +85,57 @@ Behavior:
 - **`variables`**: per bucket **`all` / `build` / `deploy`**, keys from the project **override** the same keys from central (PHP `array_merge` on each bucket).
 - **Scalars** such as **`recipe`**, **`php_version`**, **`public_folder`**, **`magento_dir`**: project value **replaces** central when set in project `defaults`.
 
-Use project **`defaults`** to add an extra shared folder, bump `static_content_jobs`, or change PHP version without copying the whole central file.
+Use project **`defaults`** to add an extra shared folder, bump `static_content_jobs`, change PHP version, or set Hyvä themes without copying the whole central file.
 
-### 2) Active stage overrides (replace)
+**Hyvä themes (Hypernode Deploy 4.8+):** set a locale-mapped `magento_themes`, optional `hyva_tailwind_dirs` (npm build runs after `magento:compile`), and `high_performance_static_deploy: true`:
 
-When **`DEPLOY_CONFIG_STAGE`** is set, or the CLI is `hypernode-deploy deploy <stage> …`, that **`<stage>`** block can **replace** parts of the **already merged** defaults for **this run only**:
+```yaml
+defaults:
+  variables:
+    build:
+      magento_themes:
+        HappyHorizon/hyva: "en_US nl_NL"
+        Magento/backend: "en_US nl_NL"
+      hyva_tailwind_dirs:
+        - app/design/frontend/HappyHorizon/hyva/web/tailwind
+      high_performance_static_deploy: true
+```
+
+**Snowdog frontools (gulp styles):** set `snowdog_frontools_dirs` so styles compile **after** SCD (same order as classic `deploy.sh`). Default gulp args are `styles --ci --prod --disableMaps`; override with `snowdog_frontools_gulp_args` if needed. `npm install` sets `PHANTOMJS_SKIP_DOWNLOAD=true`, installs `bzip2` when missing, and ensures **Node 12** (default `snowdog_frontools_node_version: "12.22.12"`) because frontools 1.8 / `node-sass` do not build on Node 16/18:
+
+```yaml
+defaults:
+  variables:
+    build:
+      snowdog_frontools_dirs:
+        - tools
+      # snowdog_frontools_node_version: "12.22.12"
+      # snowdog_frontools_gulp_args: "styles --ci --prod --disableMaps"
+```
+
+`magento_themes` from the project **replaces** the central list (so Magento/blank is not left behind).
+
+**`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
+
+**Composer version (Magento ≤2.4.3):** deploy images may ship Composer 2.3+ / 2.9, which breaks `laminas/laminas-dependency-plugin` (`composer-plugin-api <2.3`). Pin the 2.2 LTS before `composer install`:
+
+```yaml
+defaults:
+  variables:
+    build:
+      composer_self_update: "2.2"
+```
+
+### 2) Active stage overrides
+
+When **`DEPLOY_CONFIG_STAGE`** is set, or the CLI is `hypernode-deploy deploy <stage> …`, that **`<stage>`** block can override parts of the **already merged** defaults for **this run only**:
 
 If the environment defines any of these keys **as an array**, the **entire** list or map is **replaced** (not merged with merged defaults):
 
 - `deploy_excludes`, `shared_files`, `shared_folders`
-- `build_tasks`, `deploy_tasks`, `hypernode_settings`, `variables`
+- `build_tasks`, `deploy_tasks`, `hypernode_settings`
+
+**`variables`** on the environment are **deep-merged** per bucket (`all` / `build` / `deploy`), same as project `defaults.variables`. So a stage can set `variables.deploy.deploy_path` without wiping `variables.build.env.MAGE_MODE` or static-content settings from defaults.
 
 Scalars that can be overridden when set on the environment:
 
