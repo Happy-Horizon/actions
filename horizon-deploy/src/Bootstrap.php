@@ -280,7 +280,6 @@ PHP;
         task('magento:build:remove-env', function () {
             run('rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php');
         });
-        after('magento:deploy:assets', 'magento:build:remove-env');
 
         desc('Installs vendors');
         task('deploy:vendors', function () {
