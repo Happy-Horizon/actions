@@ -84,7 +84,24 @@ jobs:
           COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
       - name: Run static code scans
-        run: bash ./vendor/experius/module-testsuite/Test/static/run.sh ${{ inputs.scan_path }}
+        env:
+          SCAN_PATH: ${{ inputs.scan_path }}
+        run: |
+          set -euo pipefail
+          # phpmd 3.x replaced the positional CLI (`phpmd PATH text RULESET`) with
+          # Symfony Console (`phpmd analyze PATH --ruleset RULESET`). The Experius
+          # testsuite static/run.sh still uses the phpmd 2 syntax. Detect and branch.
+          if ./vendor/bin/phpmd list 2>/dev/null | grep -q 'analyze'; then
+            echo "phpmd 3.x detected — using analyze CLI for ${SCAN_PATH}"
+            # Same invocation as Bitbucket pipelines that already moved to phpmd 3.
+            ./vendor/bin/phpmd analyze "${SCAN_PATH}/" --ruleset unusedcode
+            echo "scan PSR2 ${SCAN_PATH} severity 6"
+            ./vendor/bin/phpcs --standard=PSR2 "${SCAN_PATH}" --severity=6
+            echo "scan Magento2 ${SCAN_PATH} severity 10"
+            ./vendor/bin/phpcs "${SCAN_PATH}" --standard=Magento2 --severity=10 --extensions=php
+          else
+            bash ./vendor/experius/module-testsuite/Test/static/run.sh "${SCAN_PATH}"
+          fi
 
   # Catches Symfony Command::execute(): int incompatibilities (and other DI fatals)
   # before Hypernode build runs magento:compile. Requires a throwaway env.php; no DB needed.
