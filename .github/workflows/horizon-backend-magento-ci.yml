@@ -149,6 +149,12 @@ jobs:
           # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
           COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
+      # No 'db' section on purpose. Modules that touch the database during compile
+      # (e.g. Amasty ExportCore's GenerateFactories plugin on the proxy generator)
+      # guard on "is a default connection configured?" and skip themselves when it
+      # is absent. Stubbing a fake db host instead makes them believe a database is
+      # reachable, and compile dies on SQLSTATE[HY000] [2002] Connection refused.
+      # This mirrors the Hypernode build container, which also compiles without a DB.
       - name: Create minimal env.php for compile
         run: |
           cat > app/etc/env.php <<'PHP'
@@ -156,22 +162,6 @@ jobs:
           return [
               'backend' => ['frontName' => 'admin'],
               'crypt' => ['key' => '00000000000000000000000000000000'],
-              'db' => [
-                  'table_prefix' => '',
-                  'connection' => [
-                      'default' => [
-                          'host' => '127.0.0.1',
-                          'dbname' => 'magento',
-                          'username' => 'magento',
-                          'password' => 'magento',
-                          'model' => 'mysql4',
-                          'engine' => 'innodb',
-                          'initStatements' => 'SET NAMES utf8;',
-                          'active' => '1',
-                      ],
-                  ],
-              ],
-              'resource' => ['default_setup' => ['connection' => 'default']],
               'x-frame-options' => 'SAMEORIGIN',
               'MAGE_MODE' => 'production',
               'session' => ['save' => 'files'],
@@ -181,7 +171,6 @@ jobs:
                       'page_cache' => ['id_prefix' => 'ci_'],
                   ],
               ],
-              'lock' => ['provider' => 'db', 'config' => ['prefix' => '']],
               'cache_types' => [
                   'config' => 1,
                   'layout' => 1,
@@ -205,9 +194,10 @@ jobs:
       - name: Run setup:di:compile
         run: |
           set -uo pipefail
-          # Compile does not need a live DB, but Magento may still exit non-zero afterward
-          # with SQLSTATE connection refused (shutdown/cache). Pass on the success marker.
-          # Fail hard when that marker is missing (e.g. PHP fatals under Symfony 7).
+          # Compile does not need a live DB, but Magento still exits non-zero afterward
+          # (shutdown/cache hits the undefined "default" connection). Pass on the
+          # success marker instead of the exit code, and fail hard when that marker is
+          # missing (e.g. PHP fatals under Symfony 7).
           MAGE_MODE=production php -d memory_limit=2G bin/magento setup:di:compile 2>&1 | tee di-compile.log || true
           set -e
           grep -q 'Generated code and dependency injection configuration successfully' di-compile.log
