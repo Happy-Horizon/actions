@@ -15,6 +15,7 @@ use function Deployer\currentHost;
 use function Deployer\desc;
 use function Deployer\get;
 use function Deployer\invoke;
+use function Deployer\parse;
 use function Deployer\run;
 use function Deployer\task;
 use function Deployer\upload;
@@ -23,15 +24,6 @@ use function Deployer\writeln;
 
 final class Bootstrap
 {
-    /**
-     * Tasks that shell out to setup:static-content:deploy and must not see a db-less env.php.
-     */
-    private const STATIC_CONTENT_TASKS = [
-        'magento:deploy:assets',
-        'magento:deploy:assets:adminhtml',
-        'magento:deploy:assets:frontend',
-    ];
-
     public static function run(string $projectRoot): Configuration
     {
         self::ensureAutoload($projectRoot);
@@ -688,39 +680,74 @@ final class Bootstrap
     }
 
     /**
-     * Drops the build-generated env.php in front of every static content deploy task.
+     * Keeps the build-generated env.php away from every static content deploy command.
      *
-     * Split SCD calls setup:static-content:deploy twice through Deployer's invoke(), which
-     * does not expand before/after hooks. A single before() on magento:deploy:assets is
-     * therefore not enough: the adminhtml run recreates a db-less env.php and the frontend
-     * run fails on it. Wrapping the sub-tasks covers every call, and keeps working for
-     * projects that define their own build_tasks.
+     * Each bin/magento call writes a cache-types-only app/etc/env.php, and the next call's
+     * autoloader then aborts on it, so removing it once per task is not enough: split SCD
+     * issues one command per theme. The split sub-tasks are therefore reimplemented with the
+     * removal inside the same shell command, and the umbrella task (non-split SCD, or the
+     * high performance binary) gets magento:build:remove-env in front of it.
      *
      * Runs as a post-initialize callback because the magento2 recipe (setRecipe) and
      * hypernode-deploy's own tasks (high_performance_static_deploy) define these tasks after
-     * this file is loaded — wrapping any earlier would just be overwritten.
+     * this file is loaded — registering any earlier would just be overwritten.
      */
     private static function guardStaticContentEnv(Configuration $configuration): void
     {
         $configuration->addPostInitializeCallback(static function (): void {
             $tasks = Deployer::get()->tasks;
 
-            foreach (self::STATIC_CONTENT_TASKS as $name) {
-                if (!$tasks->has($name)) {
-                    continue;
-                }
-
-                // task() replaces the callback on the *existing* Task instance, so the
-                // original has to be cloned first — calling run() on the live task would
-                // re-enter the wrapper and recurse until the stack blows. Mutating in place
-                // also means the description, selector and hooks carry over untouched.
-                $original = clone $tasks->get($name);
-                task($name, static function () use ($original): void {
+            if ($tasks->has('magento:deploy:assets')) {
+                // task() swaps the callback on the *existing* Task instance, so the original
+                // has to be cloned first: running the live task would re-enter this wrapper
+                // and recurse until the stack blows. In-place mutation also means the
+                // description, selector and hooks carry over untouched.
+                $original = clone $tasks->get('magento:deploy:assets');
+                task('magento:deploy:assets', static function () use ($original): void {
                     invoke('magento:build:remove-env');
                     $original->run(Context::get());
                 });
             }
+
+            if ($tasks->has('magento:deploy:assets:adminhtml')) {
+                task('magento:deploy:assets:adminhtml', static function (): void {
+                    self::deployStaticContent('adminhtml');
+                });
+            }
+
+            if ($tasks->has('magento:deploy:assets:frontend')) {
+                task('magento:deploy:assets:frontend', static function (): void {
+                    self::deployStaticContent('frontend');
+                });
+            }
         });
+    }
+
+    /**
+     * Mirrors the magento2 recipe's split static content deploy, with app/etc/env.php dropped
+     * in front of each command. `magento_themes` as a locale map means one command per theme.
+     */
+    private static function deployStaticContent(string $area): void
+    {
+        $suffix = $area === 'frontend' ? '' : '_backend';
+        $themes = get("magento_themes$suffix");
+        $defaultLocales = get("static_content_locales$suffix");
+
+        $command = 'rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php'
+            . ' && {{bin/php}} {{bin/magento}} setup:static-content:deploy -f'
+            . " --area=$area --content-version={{content_version}} {{static_deploy_options}}";
+
+        if (\array_is_list($themes)) {
+            $themeArgs = $themes === [] ? '' : '-t ' . implode(' -t ', $themes);
+            run("$command $defaultLocales $themeArgs -j {{static_content_jobs}}");
+            return;
+        }
+
+        foreach ($themes as $theme => $locales) {
+            $locales = $locales ?: $defaultLocales;
+            $locales = parse(is_array($locales) ? implode(' ', $locales) : (string) $locales);
+            run("$command $locales -t $theme -j {{static_content_jobs}}");
+        }
     }
 
     /**
