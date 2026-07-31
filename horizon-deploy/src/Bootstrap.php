@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace HappyHorizon\Deploy;
 
-use Deployer\Context;
 use Deployer\Deployer;
+use Deployer\Task\Context;
 use Hypernode\DeployConfiguration\Configuration;
 use Hypernode\DeployConfiguration\PlatformConfiguration\CronConfiguration;
 use Symfony\Component\Yaml\Yaml;
