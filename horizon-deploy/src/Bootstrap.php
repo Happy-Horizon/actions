@@ -69,6 +69,15 @@ final class Bootstrap
 
     private static function ensureAutoload(string $projectRoot): void
     {
+        // Only Yaml is needed here, and hypernode-deploy already ships symfony/yaml. Loading
+        // the project autoloader runs composer's "files" autoloaders, and Experius Connector's
+        // registration.php throws "No database connection was found" whenever app/etc/env.php
+        // has no db section — the state the build stage leaves behind. The build stage never
+        // hit this because vendor/ does not exist yet when deploy.php is first loaded.
+        if (class_exists(Yaml::class)) {
+            return;
+        }
+
         $autoload = $projectRoot . '/vendor/autoload.php';
         if (is_readable($autoload)) {
             require_once $autoload;
