@@ -710,24 +710,15 @@ final class Bootstrap
                     continue;
                 }
 
-                $original = $tasks->get($name);
-                $wrapped = task($name, static function () use ($original): void {
+                // task() replaces the callback on the *existing* Task instance, so the
+                // original has to be cloned first — calling run() on the live task would
+                // re-enter the wrapper and recurse until the stack blows. Mutating in place
+                // also means the description, selector and hooks carry over untouched.
+                $original = clone $tasks->get($name);
+                task($name, static function () use ($original): void {
                     invoke('magento:build:remove-env');
                     $original->run(Context::get());
                 });
-
-                $description = $original->getDescription();
-                if ($description !== null) {
-                    $wrapped->desc($description);
-                }
-                $wrapped->addSelector($original->getSelector());
-                // addBefore() unshifts, so feed the list in reverse to keep the original order.
-                foreach (\array_reverse($original->getBefore()) as $before) {
-                    $wrapped->addBefore($before);
-                }
-                foreach ($original->getAfter() as $afterTask) {
-                    $wrapped->addAfter($afterTask);
-                }
             }
         });
     }
