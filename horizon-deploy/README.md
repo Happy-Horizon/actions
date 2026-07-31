@@ -115,6 +115,8 @@ defaults:
 
 `magento_themes` from the project **replaces** the central list (so Magento/blank is not left behind).
 
+**Build-generated `env.php`:** the build container has no database, and Magento writes a cache-types-only `app/etc/env.php` during `setup:di:compile` and during every `setup:static-content:deploy` run. Packages that read DB config while bootstrapping (notably `experius/connector-interface-magento`) then abort SCD with *No database connection was found…*. With **no** `env.php` at all Magento resolves themes from the dumped `app/etc/config.php`, so every static content task is wrapped to run `magento:build:remove-env` first — including the `magento:deploy:assets:adminhtml` / `:frontend` pair used by split SCD, because Deployer's `invoke()` skips `before`/`after` hooks. This is automatic; no `build_tasks` entry is needed, and it also applies when a project defines its own `build_tasks`. Keep `app/etc/config.php` (with `scopes` **and** `themes`) committed, and the real `env.php` in `shared_files`.
+
 **`php_version` and `hypernode_settings`:** the scalar `php_version` selects the Deployer CLI binary **and** the desired Hypernode platform PHP. Extra platform knobs (e.g. `mysql_version`) go under `hypernode_settings`. On every deploy, `hypernode:settings:sync` (after `deploy:setup`) compares live `hypernode-systemctl` values to the desired set; if anything differs it enables Magento maintenance, applies with `--block`, then disables maintenance. Already-matching settings are a no-op (no `update_node` job).
 
 **Composer version (Magento ≤2.4.3):** deploy images may ship Composer 2.3+ / 2.9, which breaks `laminas/laminas-dependency-plugin` (`composer-plugin-api <2.3`). Pin the 2.2 LTS before `composer install`:

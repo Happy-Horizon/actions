@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace HappyHorizon\Deploy;
 
+use Deployer\Context;
+use Deployer\Deployer;
 use Hypernode\DeployConfiguration\Configuration;
 use Hypernode\DeployConfiguration\PlatformConfiguration\CronConfiguration;
 use Symfony\Component\Yaml\Yaml;
 use function Deployer\after;
 use function Deployer\commandExist;
+use function Deployer\currentHost;
 use function Deployer\desc;
 use function Deployer\get;
+use function Deployer\invoke;
 use function Deployer\run;
 use function Deployer\task;
 use function Deployer\upload;
@@ -19,6 +23,15 @@ use function Deployer\writeln;
 
 final class Bootstrap
 {
+    /**
+     * Tasks that shell out to setup:static-content:deploy and must not see a db-less env.php.
+     */
+    private const STATIC_CONTENT_TASKS = [
+        'magento:deploy:assets',
+        'magento:deploy:assets:adminhtml',
+        'magento:deploy:assets:frontend',
+    ];
+
     public static function run(string $projectRoot): Configuration
     {
         self::ensureAutoload($projectRoot);
@@ -35,6 +48,7 @@ final class Bootstrap
 
         $configuration = new Configuration();
         self::applyDefaults($configuration, $defaults);
+        self::guardStaticContentEnv($configuration);
 
         foreach ($config['environments'] as $stageName => $envBlock) {
             if (!is_string($stageName) || $stageName === '' || !is_array($envBlock)) {
@@ -147,6 +161,22 @@ final class Bootstrap
         desc('Enables all Magento caches');
         task('magento:cache:enable', function () {
             run("if [ -d $(echo {{current_path}}) ]; then {{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento cache:enable; fi");
+        });
+
+        // Magento rewrites app/etc/env.php (cache types) during setup:di:compile and on every
+        // setup:static-content:deploy run. Packages that read DB config while bootstrapping
+        // (notably experius/connector-interface-magento) then abort SCD with "No database
+        // connection was found"; with no env.php at all Magento resolves themes from the
+        // dumped app/etc/config.php instead. The real env.php comes from shared_files on the
+        // server, where it is a symlink — hence the build-host guard.
+        desc('Removes the build-generated env.php before static content deploy');
+        task('magento:build:remove-env', function () {
+            if (currentHost()->getAlias() !== 'build') {
+                writeln('<comment>magento:build:remove-env: skipped, app/etc/env.php is a shared symlink outside the build stage</comment>');
+                return;
+            }
+
+            run('rm -f {{release_or_current_path}}/{{magento_dir}}/app/etc/env.php');
         });
 
         desc('Builds Hyvä Tailwind CSS (npm) before static content deploy');
@@ -655,6 +685,51 @@ final class Bootstrap
         }
 
         return $defaults;
+    }
+
+    /**
+     * Drops the build-generated env.php in front of every static content deploy task.
+     *
+     * Split SCD calls setup:static-content:deploy twice through Deployer's invoke(), which
+     * does not expand before/after hooks. A single before() on magento:deploy:assets is
+     * therefore not enough: the adminhtml run recreates a db-less env.php and the frontend
+     * run fails on it. Wrapping the sub-tasks covers every call, and keeps working for
+     * projects that define their own build_tasks.
+     *
+     * Runs as a post-initialize callback because the magento2 recipe (setRecipe) and
+     * hypernode-deploy's own tasks (high_performance_static_deploy) define these tasks after
+     * this file is loaded — wrapping any earlier would just be overwritten.
+     */
+    private static function guardStaticContentEnv(Configuration $configuration): void
+    {
+        $configuration->addPostInitializeCallback(static function (): void {
+            $tasks = Deployer::get()->tasks;
+
+            foreach (self::STATIC_CONTENT_TASKS as $name) {
+                if (!$tasks->has($name)) {
+                    continue;
+                }
+
+                $original = $tasks->get($name);
+                $wrapped = task($name, static function () use ($original): void {
+                    invoke('magento:build:remove-env');
+                    $original->run(Context::get());
+                });
+
+                $description = $original->getDescription();
+                if ($description !== null) {
+                    $wrapped->desc($description);
+                }
+                $wrapped->addSelector($original->getSelector());
+                // addBefore() unshifts, so feed the list in reverse to keep the original order.
+                foreach (\array_reverse($original->getBefore()) as $before) {
+                    $wrapped->addBefore($before);
+                }
+                foreach ($original->getAfter() as $afterTask) {
+                    $wrapped->addAfter($afterTask);
+                }
+            }
+        });
     }
 
     /**
