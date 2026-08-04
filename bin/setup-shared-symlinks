@@ -10,8 +10,14 @@
 # Lines starting with # are comments. Glob patterns like var/* are expanded on
 # the remote server. Leading slashes are stripped.
 #
+# Special case — var/:
+#   Never symlink the whole var/ directory. Instead expand to immediate children
+#   (including hidden files) and symlink each, except paths listed in
+#   .include-files-deploy (release-local: generation, di, view_preprocessed, …).
+#
 # Defaults:
 #   exclude_file = .exclude-files-deploy  (relative to cwd / the project repo)
+#   include_file = .include-files-deploy  (same dir as exclude_file when relative)
 #   magento_path = /data/web/magento2
 #   deploy_path  = /data/web/deploy
 #
@@ -40,12 +46,24 @@ if [ ! -f "${EXCLUDE_FILE}" ]; then
     exit 1
 fi
 
+# Include file sits next to the exclude file (release-local exceptions).
+EXCLUDE_DIR="$(cd "$(dirname "${EXCLUDE_FILE}")" && pwd)"
+INCLUDE_FILE="${INCLUDE_FILE:-${EXCLUDE_DIR}/.include-files-deploy}"
+
 # Parse the exclude file: strip comments, blank lines, leading/trailing slashes
 # Glob patterns (e.g. var/*) are kept and expanded on the remote server
 PATHS=$(grep -v '^\s*#' "${EXCLUDE_FILE}" | grep -v '^\s*$' | sed 's|^[[:space:]]*/||; s|/\?[[:space:]]*$||')
 
+INCLUDE_PATHS=""
+if [ -f "${INCLUDE_FILE}" ]; then
+    INCLUDE_PATHS=$(grep -v '^\s*#' "${INCLUDE_FILE}" | grep -v '^\s*$' | sed 's|^[[:space:]]*/||; s|/\?[[:space:]]*$||')
+else
+    echo "Warning: include file '${INCLUDE_FILE}' not found — var/ children will not be filtered." >&2
+fi
+
 echo "=== setup-shared-symlinks on ${NODE}.hypernode.io ==="
 echo "Exclude file : ${EXCLUDE_FILE}"
+echo "Include file : ${INCLUDE_FILE}"
 echo "Source       : ${MAGENTO_PATH}"
 echo "Shared       : ${DEPLOY_PATH}/shared"
 echo ""
@@ -61,16 +79,72 @@ info()    { echo "  [info] \$*"; }
 success() { echo "  [ok]   \$*"; }
 skip()    { echo "  [skip] \$*"; }
 
-# All paths from the exclude file (globs expanded relative to magento_path)
+# Paths from the exclude file (globs expanded relative to magento_path)
 RAW_PATHS=(
 $(echo "${PATHS}" | while read -r p; do echo "  \"${p}\""; done)
 )
 
+# Release-local paths from .include-files-deploy (never shared)
+INCLUDE_PATHS=(
+$(if [ -n "${INCLUDE_PATHS}" ]; then echo "${INCLUDE_PATHS}" | while read -r p; do echo "  \"${p}\""; done; fi)
+)
+
+is_included() {
+    local rel="\${1%/}"
+    local inc
+    [ \${#INCLUDE_PATHS[@]} -eq 0 ] && return 1
+    for inc in "\${INCLUDE_PATHS[@]}"; do
+        [ -z "\${inc}" ] && continue
+        inc="\${inc%/}"
+        if [ "\${rel}" = "\${inc}" ] || [[ "\${rel}" == "\${inc}/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Expand var/ (or var/*) to immediate children; keep var itself out of shared.
+expand_var_children() {
+    local var_dir="\${MAGENTO_PATH}/var"
+    local child rel
+
+    if [ ! -d "\${var_dir}" ] && [ ! -L "\${var_dir}" ]; then
+        skip "var (directory not found)"
+        return
+    fi
+
+    # Include hidden files (.htaccess, .maintenance.ip, …); skip . and ..
+    shopt -s nullglob dotglob
+    for child in "\${var_dir}/"*; do
+        child="\${child%/}"
+        rel="\${child#\${MAGENTO_PATH}/}"
+        rel="\${rel%/}"
+        if is_included "\${rel}"; then
+            skip "\${rel} (listed in include file — release-local)"
+            continue
+        fi
+        RESOLVED+=("\${rel}")
+    done
+    shopt -u nullglob dotglob
+}
+
 echo "--- resolving paths in \${MAGENTO_PATH} ---"
 RESOLVED=()
+VAR_EXPANDED=0
 for pattern in "\${RAW_PATHS[@]}"; do
     # Strip trailing slashes so glob expansion and dirname work correctly
     pattern="\${pattern%/}"
+
+    # var or var/* → expand children, never share whole var/
+    if [ "\${pattern}" = "var" ] || [ "\${pattern}" = "var/*" ]; then
+        if [ "\${VAR_EXPANDED}" -eq 0 ]; then
+            info "expanding var/ to children (excluding include-file paths)"
+            expand_var_children
+            VAR_EXPANDED=1
+        fi
+        continue
+    fi
+
     # Expand glob relative to magento_path
     matches=( \${MAGENTO_PATH}/\${pattern} )
     for match in "\${matches[@]}"; do
@@ -79,9 +153,38 @@ for pattern in "\${RAW_PATHS[@]}"; do
         [ -e "\${match}" ] || [ -L "\${match}" ] || continue
         # Store relative path (no trailing slash)
         rel="\${match#\${MAGENTO_PATH}/}"
+        rel="\${rel%/}"
+
+        # If a glob somehow resolved to whole var/, expand instead
+        if [ "\${rel}" = "var" ]; then
+            if [ "\${VAR_EXPANDED}" -eq 0 ]; then
+                info "expanding var/ to children (excluding include-file paths)"
+                expand_var_children
+                VAR_EXPANDED=1
+            fi
+            continue
+        fi
+
+        if is_included "\${rel}"; then
+            skip "\${rel} (listed in include file — release-local)"
+            continue
+        fi
+
         RESOLVED+=("\${rel}")
     done
 done
+
+# Deduplicate while preserving order
+if [ \${#RESOLVED[@]} -gt 0 ]; then
+    DEDUPED=()
+    declare -A SEEN=()
+    for rel in "\${RESOLVED[@]}"; do
+        [ -n "\${SEEN[\${rel}]+x}" ] && continue
+        SEEN["\${rel}"]=1
+        DEDUPED+=("\${rel}")
+    done
+    RESOLVED=("\${DEDUPED[@]}")
+fi
 
 if [ \${#RESOLVED[@]} -eq 0 ]; then
     echo "  No matching paths found — nothing to do."
