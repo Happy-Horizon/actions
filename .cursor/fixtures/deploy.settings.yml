@@ -1,0 +1,41 @@
+# Fixture project deploy.settings.yml used by .cursor/verify-toolkit.php to run the
+# horizon-deploy toolkit end to end. Exercises central+project defaults merging,
+# ${VAR} expansion, locale-mapped Hyvä themes, and both server- and brancher-based stages.
+defaults:
+  php_version: "8.3"
+  variables:
+    build:
+      static_content_jobs: 8
+      magento_themes:
+        HappyHorizon/hyva: "en_US nl_NL"
+        Magento/backend: "en_US"
+      hyva_tailwind_dirs:
+        - app/design/frontend/HappyHorizon/hyva/web/tailwind
+    deploy:
+      keep_releases: 5
+      maintenance_ip_whitelist: "${MAINTENANCE_IP_WHITELIST}"
+  shared_folders:
+    - var/custom_extra
+
+environments:
+  staging:
+    domain: shop-staging.example.com
+    username: app
+    servers:
+      - hostname: mystaging.hypernode.io
+        options:
+          deploy_path: /data/web/build-acceptance
+  production:
+    domain: shop.example.com
+    username: app
+    servers:
+      - hostname: myprod.hypernode.io
+  acceptance:
+    domain: acc.example.com
+    brancher:
+      parent_app: myparentapp
+      labels:
+        - preview
+      append_ci_ref_label: true
+      ci_ref_env: GITHUB_RUN_ID
+      ci_ref_fallback: local
