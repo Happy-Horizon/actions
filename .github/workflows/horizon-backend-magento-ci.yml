@@ -91,16 +91,24 @@ jobs:
           # phpmd 3.x replaced the positional CLI (`phpmd PATH text RULESET`) with
           # Symfony Console (`phpmd analyze PATH --ruleset RULESET`). The Experius
           # testsuite static/run.sh still uses the phpmd 2 syntax. Detect and branch.
+          # SCAN_PATH may hold multiple space-separated paths (e.g. "app/code/Vendor app/design"),
+          # matching how Bitbucket passed them to static/run.sh as separate args. Expand it
+          # unquoted everywhere: quoting glues the list into one nonexistent path and phpmd/phpcs
+          # bail out with a usage error.
           if ./vendor/bin/phpmd list 2>/dev/null | grep -q 'analyze'; then
-            echo "phpmd 3.x detected — using analyze CLI for ${SCAN_PATH}"
+            echo "phpmd 3.x detected — scanning: ${SCAN_PATH}"
             # Same invocation as Bitbucket pipelines that already moved to phpmd 3.
-            ./vendor/bin/phpmd analyze "${SCAN_PATH}/" --ruleset unusedcode
+            # shellcheck disable=SC2086
+            ./vendor/bin/phpmd analyze ${SCAN_PATH} --ruleset unusedcode
             echo "scan PSR2 ${SCAN_PATH} severity 6"
-            ./vendor/bin/phpcs --standard=PSR2 "${SCAN_PATH}" --severity=6
+            # shellcheck disable=SC2086
+            ./vendor/bin/phpcs --standard=PSR2 ${SCAN_PATH} --severity=6
             echo "scan Magento2 ${SCAN_PATH} severity 10"
-            ./vendor/bin/phpcs "${SCAN_PATH}" --standard=Magento2 --severity=10 --extensions=php
+            # shellcheck disable=SC2086
+            ./vendor/bin/phpcs ${SCAN_PATH} --standard=Magento2 --severity=10 --extensions=php
           else
-            bash ./vendor/experius/module-testsuite/Test/static/run.sh "${SCAN_PATH}"
+            # shellcheck disable=SC2086
+            bash ./vendor/experius/module-testsuite/Test/static/run.sh ${SCAN_PATH}
           fi
 
   # Catches Symfony Command::execute(): int incompatibilities (and other DI fatals)
