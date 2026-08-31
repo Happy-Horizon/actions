@@ -228,6 +228,9 @@ final class Bootstrap
                 // Match classic deploy.sh: npm install + local gulp binary (not npx).
                 // Transitive phantomjs needs bzip2 to unpack *.tar.bz2; deploy images omit it.
                 // Older phantomjs packages ignore PHANTOMJS_SKIP_DOWNLOAD — install bzip2.
+                // legacy_peer_deps: frontools <= 1.12 ships conflicting peers (eslint 8 vs
+                // eslint-plugin-compat 3 wanting eslint <= 7). npm 7+ hard-fails on ERESOLVE;
+                // npm 6 (node 12) tolerated it and classic deploy.sh used `npm install --force`.
                 // Snowdog frontools 1.8 / node-sass need Node 12 (prebuilt bindings); images
                 // often ship Node 16/18 and then node-gyp rebuild fails on Python 3.
                 try {
@@ -269,6 +272,7 @@ final class Bootstrap
                     . "cd {{release_or_current_path}}/{$dir}"
                     . ' && PHANTOMJS_SKIP_DOWNLOAD=true'
                     . ' npm_config_phantomjs_skip_download=true'
+                    . ' npm_config_legacy_peer_deps=true'
                     . ' npm install'
                     . ' && node_modules/gulp/bin/gulp.js ' . $gulpArgs
                 );
