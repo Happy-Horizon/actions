@@ -88,8 +88,6 @@ on:
     secrets:
       SSH_PRIVATE_KEY:
         required: true
-      DEPLOY_COMPOSER_AUTH:
-        required: false
       COMPOSER_PROCESS_TIMEOUT:
         required: false
       MAINTENANCE_IP_WHITELIST:
@@ -202,7 +200,6 @@ jobs:
         if: (inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment) && inputs.artifact_name == ''
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
           COMPOSER_PROCESS_TIMEOUT: ${{ secrets.COMPOSER_PROCESS_TIMEOUT }}
           DEPLOY_CONFIG_STAGE: ${{ inputs.deploy_stage }}
         run: |
@@ -222,7 +219,6 @@ jobs:
           export HORIZON_DEPLOY_DEFAULTS="$DEF"
           docker run --rm \
             -e SSH_PRIVATE_KEY \
-            -e DEPLOY_COMPOSER_AUTH \
             -e COMPOSER_PROCESS_TIMEOUT \
             -e DEPLOY_CONFIG_STAGE \
             -e HORIZON_DEPLOY_BOOTSTRAP \
@@ -236,7 +232,6 @@ jobs:
         if: inputs.deploy_stage != 'acceptance' || inputs.enable_preview_environment
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
           COMPOSER_PROCESS_TIMEOUT: ${{ secrets.COMPOSER_PROCESS_TIMEOUT }}
           MAINTENANCE_IP_WHITELIST: ${{ secrets.MAINTENANCE_IP_WHITELIST }}
           HYPERNODE_API_TOKEN: ${{ secrets.HYPERNODE_API_TOKEN }}
@@ -259,7 +254,6 @@ jobs:
           export HORIZON_DEPLOY_DEFAULTS="$DEF"
           docker run --rm \
             -e SSH_PRIVATE_KEY \
-            -e DEPLOY_COMPOSER_AUTH \
             -e COMPOSER_PROCESS_TIMEOUT \
             -e MAINTENANCE_IP_WHITELIST \
             -e HYPERNODE_API_TOKEN \
