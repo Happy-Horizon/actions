@@ -44,8 +44,6 @@ on:
       SSH_PRIVATE_KEY:
         required: false
         description: Same key as Hypernode deploys; needed to clone private Git Composer repos (e.g. gitlab.hyva.io)
-      DEPLOY_COMPOSER_AUTH:
-        required: false
 
 jobs:
   static-code-scans:
@@ -79,7 +77,6 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
         env:
-          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
           # Magento 2.4.3 / PHP 7.4: Composer refuses tar/phar metadata without this.
           COMPOSER_ALLOW_UNSAFE_PHAR_METADATA: '1'
 
@@ -150,7 +147,6 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
         env:
-          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
           COMPOSER_PROCESS_TIMEOUT: 0
           COMPOSER_NO_INTERACTION: 1
           COMPOSER_NO_AUDIT: 1
