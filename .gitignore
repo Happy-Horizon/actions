@@ -1,1 +1,4 @@
 .history
+
+# Cloud Agent dev runtime for the horizon-deploy toolkit (provisioned by .cursor/install.sh)
+.cursor/horizon-deploy-runtime/vendor/
