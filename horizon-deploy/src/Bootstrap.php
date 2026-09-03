@@ -44,6 +44,7 @@ final class Bootstrap
         $configuration = new Configuration();
         self::applyDefaults($configuration, $defaults);
         self::guardStaticContentEnv($configuration);
+        self::guardPreviousReleasePhp($configuration);
 
         foreach ($config['environments'] as $stageName => $envBlock) {
             if (!is_string($stageName) || $stageName === '' || !is_array($envBlock)) {
@@ -103,14 +104,6 @@ final class Bootstrap
         });
         set('horizon_php_switched', false);
 
-        $runOnPreviousRelease = static function (string $magentoCommand): void {
-            try {
-                run("if [ -d $(echo {{current_path}}) ]; then {{horizon_current_php}} {{current_path}}/{{magento_dir}}/bin/magento {$magentoCommand}; fi");
-            } catch (RunException $e) {
-                warning("bin/magento {$magentoCommand} failed on the previous release (exit {$e->getExitCode()}); continuing");
-            }
-        };
-
         desc('Installs or updates ~/.hypernode/brancher-install-hook from the project repository');
         task('hypernode:install_brancher_hook', function () {
             $hookSource = '{{release_path}}/.hypernode/brancher-install-hook';
@@ -122,38 +115,6 @@ final class Bootstrap
             run("chmod +x {$hookDest}");
             run("echo 'brancher-install-hook installed at {$hookDest}'");
         });
-
-        desc('Enables maintenance mode');
-        task('magento:maintenance:enable', function () use ($runOnPreviousRelease) {
-            try {
-                $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
-            } catch (\Deployer\Exception\ConfigurationException $exception) {
-                $ipWhitelist = [];
-            }
-
-            $ipWhitelistString = '';
-
-            foreach ($ipWhitelist as $ip) {
-                $ipWhitelistString .= " --ip={$ip}";
-            }
-
-            $runOnPreviousRelease("maintenance:enable{$ipWhitelistString}");
-        });
-
-        desc('Disables maintenance mode on the previous release (skipped after a php_version switch)');
-        task('magento:maintenance:disable', function () use ($runOnPreviousRelease) {
-            if (get('horizon_php_switched')) {
-                writeln('<comment>php_version changed in this deploy => maintenance stays on until the new release is live</comment>');
-                return;
-            }
-            $runOnPreviousRelease('maintenance:disable');
-        });
-
-        desc('Disables maintenance mode on the live (new) release');
-        task('magento:maintenance:disable:live', function () {
-            run('{{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable');
-        });
-        after('deploy:symlink', 'magento:maintenance:disable:live');
 
         // No-op override: prevent any recipe-level nginx vhost task from running.
         // All nginx configuration is managed exclusively via hypernode:nginx:sync.
@@ -186,11 +147,6 @@ final class Bootstrap
         desc('Regenerates the optimised APCu-aware autoloader after composer install');
         task('deploy:apcu-autoload', function () {
             run('cd {{release_or_current_path}} && {{bin/composer}} dump-autoload --optimize --apcu 2>&1');
-        });
-
-        desc('Enables all Magento caches');
-        task('magento:cache:enable', function () use ($runOnPreviousRelease) {
-            $runOnPreviousRelease('cache:enable');
         });
 
         // Magento rewrites app/etc/env.php (cache types) during setup:di:compile and on every
@@ -344,7 +300,7 @@ final class Bootstrap
         });
 
         desc('Applies Hypernode platform settings only when they drift (maintenance-wrapped)');
-        task('hypernode:settings:sync', function () use ($runOnPreviousRelease) {
+        task('hypernode:settings:sync', function () {
             try {
                 $settings = get('horizon_hypernode_settings');
             } catch (\Deployer\Exception\ConfigurationException $e) {
@@ -370,7 +326,11 @@ final class Bootstrap
                 }
 
                 try {
-                    $output = run("hypernode-systemctl settings {$name}");
+                    // 2>&1: hypernode-systemctl reports the current value on stderr, which
+                    // run() does not return. Without it every setting looked like drift, so
+                    // each deploy re-applied --block (minutes of update_node) and needlessly
+                    // maintenance-wrapped, and the previous PHP version could not be read.
+                    $output = run("hypernode-systemctl settings {$name} 2>&1");
                 } catch (\Throwable $e) {
                     warning("hypernode:settings:sync: could not read {$name} ({$e->getMessage()}); assuming drift");
                     $output = '';
@@ -413,9 +373,9 @@ final class Bootstrap
                 break;
             }
 
-            $maintenance = function (string $action) use ($runOnPreviousRelease): void {
+            $maintenance = static function (string $action): void {
                 if ($action !== 'enable') {
-                    $runOnPreviousRelease('maintenance:disable');
+                    self::runOnPreviousRelease('maintenance:disable');
                     return;
                 }
 
@@ -429,7 +389,7 @@ final class Bootstrap
                 foreach ($ipWhitelist as $ip) {
                     $flags .= " --ip={$ip}";
                 }
-                $runOnPreviousRelease("maintenance:enable{$flags}");
+                self::runOnPreviousRelease("maintenance:enable{$flags}");
             };
 
             $maintenance('enable');
@@ -750,6 +710,80 @@ final class Bootstrap
         }
 
         return $defaults;
+    }
+
+    /**
+     * Runs a bin/magento command against the previous release ({{current_path}}).
+     *
+     * Best effort: that release is about to be replaced and, right after a php_version
+     * switch, usually cannot boot at all on the node's new PHP. Letting it abort the deploy
+     * would leave the node switched over with the old release still live and in maintenance.
+     */
+    private static function runOnPreviousRelease(string $magentoCommand): void
+    {
+        try {
+            run("if [ -d $(echo {{current_path}}) ]; then {{horizon_current_php}} {{current_path}}/{{magento_dir}}/bin/magento {$magentoCommand}; fi");
+        } catch (RunException $e) {
+            warning("bin/magento {$magentoCommand} failed on the previous release (exit {$e->getExitCode()}); continuing");
+        }
+    }
+
+    /**
+     * Keeps every bin/magento call that targets {{current_path}} on the PHP the previous
+     * release was built for, and keeps maintenance mode on across a php_version switch until
+     * the new release is symlinked in.
+     *
+     * Runs as a post-initialize callback for the same reason as guardStaticContentEnv: the
+     * magento2 recipe defines magento:maintenance:enable / magento:maintenance:disable after
+     * this file is loaded, so registering any earlier would just be overwritten.
+     */
+    private static function guardPreviousReleasePhp(Configuration $configuration): void
+    {
+        $configuration->addPostInitializeCallback(static function (): void {
+            desc('Enables maintenance mode on the previous release');
+            task('magento:maintenance:enable', static function (): void {
+                if (get('horizon_php_switched')) {
+                    // hypernode:settings:sync already enabled it before switching PHP, and
+                    // the previous release may no longer run on the node's current PHP.
+                    writeln('<comment>maintenance already enabled for the php_version switch</comment>');
+                    return;
+                }
+
+                try {
+                    $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
+                } catch (\Deployer\Exception\ConfigurationException $exception) {
+                    $ipWhitelist = [];
+                }
+
+                $ipWhitelistString = '';
+
+                foreach ($ipWhitelist as $ip) {
+                    $ipWhitelistString .= " --ip={$ip}";
+                }
+
+                self::runOnPreviousRelease("maintenance:enable{$ipWhitelistString}");
+            });
+
+            desc('Disables maintenance mode on the previous release (skipped after a php_version switch)');
+            task('magento:maintenance:disable', static function (): void {
+                if (get('horizon_php_switched')) {
+                    writeln('<comment>php_version changed in this deploy => maintenance stays on until the new release is live (magento:maintenance:disable:live)</comment>');
+                    return;
+                }
+                self::runOnPreviousRelease('maintenance:disable');
+            });
+
+            desc('Enables all Magento caches');
+            task('magento:cache:enable', static function (): void {
+                self::runOnPreviousRelease('cache:enable');
+            });
+
+            desc('Disables maintenance mode on the live (new) release');
+            task('magento:maintenance:disable:live', static function (): void {
+                run('{{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable');
+            });
+            after('deploy:symlink', 'magento:maintenance:disable:live');
+        });
     }
 
     /**
