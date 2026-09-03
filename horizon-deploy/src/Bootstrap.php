@@ -104,6 +104,11 @@ final class Bootstrap
         });
         set('horizon_php_switched', false);
 
+        // Registered here so applyDefaults() can validate them as deploy_tasks, and again as a
+        // post-initialize callback (guardPreviousReleasePhp) because setRecipe('magento2')
+        // redefines the maintenance tasks in between.
+        self::registerPreviousReleaseTasks();
+
         desc('Installs or updates ~/.hypernode/brancher-install-hook from the project repository');
         task('hypernode:install_brancher_hook', function () {
             $hookSource = '{{release_path}}/.hypernode/brancher-install-hook';
@@ -729,59 +734,71 @@ final class Bootstrap
     }
 
     /**
+     * Tasks that act on {{current_path}} — the release that is still live while the deploy
+     * runs — plus the one that lifts maintenance once the new release is symlinked in.
+     */
+    private static function registerPreviousReleaseTasks(): void
+    {
+        desc('Enables maintenance mode on the previous release');
+        task('magento:maintenance:enable', static function (): void {
+            if (get('horizon_php_switched')) {
+                // hypernode:settings:sync already enabled it before switching PHP, and the
+                // previous release may no longer run on the node's current PHP.
+                writeln('<comment>maintenance already enabled for the php_version switch</comment>');
+                return;
+            }
+
+            try {
+                $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
+            } catch (\Deployer\Exception\ConfigurationException $exception) {
+                $ipWhitelist = [];
+            }
+
+            $ipWhitelistString = '';
+
+            foreach ($ipWhitelist as $ip) {
+                $ipWhitelistString .= " --ip={$ip}";
+            }
+
+            self::runOnPreviousRelease("maintenance:enable{$ipWhitelistString}");
+        });
+
+        desc('Disables maintenance mode on the previous release (skipped after a php_version switch)');
+        task('magento:maintenance:disable', static function (): void {
+            if (get('horizon_php_switched')) {
+                writeln('<comment>php_version changed in this deploy => maintenance stays on until the new release is live (magento:maintenance:disable:live)</comment>');
+                return;
+            }
+            self::runOnPreviousRelease('maintenance:disable');
+        });
+
+        desc('Enables all Magento caches');
+        task('magento:cache:enable', static function (): void {
+            self::runOnPreviousRelease('cache:enable');
+        });
+
+        desc('Disables maintenance mode on the live (new) release');
+        task('magento:maintenance:disable:live', static function (): void {
+            run('{{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable');
+        });
+    }
+
+    /**
      * Keeps every bin/magento call that targets {{current_path}} on the PHP the previous
      * release was built for, and keeps maintenance mode on across a php_version switch until
      * the new release is symlinked in.
      *
-     * Runs as a post-initialize callback for the same reason as guardStaticContentEnv: the
-     * magento2 recipe defines magento:maintenance:enable / magento:maintenance:disable after
-     * this file is loaded, so registering any earlier would just be overwritten.
+     * Runs as a post-initialize callback for the same reason as guardStaticContentEnv:
+     * setRecipe('magento2') loads the recipe from applyDefaults(), which redefines
+     * magento:maintenance:enable / magento:maintenance:disable after this file registered
+     * them, so the definitions have to be reapplied once everything else is loaded.
      */
     private static function guardPreviousReleasePhp(Configuration $configuration): void
     {
         $configuration->addPostInitializeCallback(static function (): void {
-            desc('Enables maintenance mode on the previous release');
-            task('magento:maintenance:enable', static function (): void {
-                if (get('horizon_php_switched')) {
-                    // hypernode:settings:sync already enabled it before switching PHP, and
-                    // the previous release may no longer run on the node's current PHP.
-                    writeln('<comment>maintenance already enabled for the php_version switch</comment>');
-                    return;
-                }
-
-                try {
-                    $ipWhitelist = \array_filter(\explode(',', (string) get('maintenance_ip_whitelist')));
-                } catch (\Deployer\Exception\ConfigurationException $exception) {
-                    $ipWhitelist = [];
-                }
-
-                $ipWhitelistString = '';
-
-                foreach ($ipWhitelist as $ip) {
-                    $ipWhitelistString .= " --ip={$ip}";
-                }
-
-                self::runOnPreviousRelease("maintenance:enable{$ipWhitelistString}");
-            });
-
-            desc('Disables maintenance mode on the previous release (skipped after a php_version switch)');
-            task('magento:maintenance:disable', static function (): void {
-                if (get('horizon_php_switched')) {
-                    writeln('<comment>php_version changed in this deploy => maintenance stays on until the new release is live (magento:maintenance:disable:live)</comment>');
-                    return;
-                }
-                self::runOnPreviousRelease('maintenance:disable');
-            });
-
-            desc('Enables all Magento caches');
-            task('magento:cache:enable', static function (): void {
-                self::runOnPreviousRelease('cache:enable');
-            });
-
-            desc('Disables maintenance mode on the live (new) release');
-            task('magento:maintenance:disable:live', static function (): void {
-                run('{{bin/php}} {{current_path}}/{{magento_dir}}/bin/magento maintenance:disable');
-            });
+            self::registerPreviousReleaseTasks();
+            // Hooked here rather than in registerPreviousReleaseTasks() so it is added once,
+            // and after anything that might still redefine deploy:symlink.
             after('deploy:symlink', 'magento:maintenance:disable:live');
         });
     }
