@@ -33,8 +33,6 @@ on:
       SSH_PRIVATE_KEY:
         required: false
         description: Same key as Hypernode deploys; needed to clone private Git Composer repos (e.g. gitlab.hyva.io)
-      DEPLOY_COMPOSER_AUTH:
-        required: false
       TESTS_DB_PASSWORD:
         required: false
 
@@ -106,8 +104,6 @@ jobs:
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
-        env:
-          COMPOSER_AUTH: ${{ secrets.DEPLOY_COMPOSER_AUTH }}
 
       - name: Setup integration test database
         run: bash ./vendor/experius/module-testsuite/Test/setup-integration/run.sh db-only
