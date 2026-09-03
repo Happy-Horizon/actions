@@ -330,20 +330,7 @@ final class Bootstrap
                     continue;
                 }
 
-                try {
-                    // 2>&1: hypernode-systemctl reports the current value on stderr, which
-                    // run() does not return. Without it every setting looked like drift, so
-                    // each deploy re-applied --block (minutes of update_node) and needlessly
-                    // maintenance-wrapped, and the previous PHP version could not be read.
-                    $output = run("hypernode-systemctl settings {$name} 2>&1");
-                } catch (\Throwable $e) {
-                    warning("hypernode:settings:sync: could not read {$name} ({$e->getMessage()}); assuming drift");
-                    $output = '';
-                }
-                $current = null;
-                if (preg_match('/is set to value\s+(\S+)/i', $output, $m)) {
-                    $current = $m[1];
-                }
+                $current = self::readHypernodeSetting($name);
                 if ($current !== null && $current === $desired) {
                     writeln("<info>hypernode:settings:sync: {$name} already {$desired}</info>");
                     continue;
@@ -397,10 +384,24 @@ final class Bootstrap
                 self::runOnPreviousRelease("maintenance:enable{$flags}");
             };
 
+            $notApplied = [];
+
             $maintenance('enable');
             try {
                 foreach ($toApply as $row) {
                     run("yes | hypernode-systemctl settings {$row['name']} {$row['value']} --block");
+                }
+
+                // hypernode-systemctl can report the update_node job as completed while the
+                // value is unchanged (stuck or rolled-back node update). Read every setting
+                // back: a release built for the new PHP must not go live on a node that is
+                // still running the old one.
+                foreach ($toApply as $row) {
+                    $applied = self::readHypernodeSetting($row['name']);
+                    if ($applied !== null && $applied !== $row['value']) {
+                        $notApplied[] = "{$row['name']} is still {$applied}, expected {$row['value']}";
+                        continue;
+                    }
                     if ($row['name'] === 'php_version') {
                         // Only once the switch really happened: if it failed, the previous
                         // release is still the live site on its old PHP and must come out
@@ -412,8 +413,18 @@ final class Bootstrap
                 if (get('horizon_php_switched')) {
                     writeln('<comment>php_version changed in this deploy => maintenance stays on until the new release is live (magento:maintenance:disable:live)</comment>');
                 } else {
+                    // Nothing switched, so the previous release is still the live site on the
+                    // PHP it was built for and has to come out of maintenance again.
                     $maintenance('disable');
                 }
+            }
+
+            if ($notApplied !== []) {
+                throw new \RuntimeException(
+                    'hypernode:settings:sync: Hypernode reported success but the platform did not change ('
+                    . implode('; ', $notApplied)
+                    . '). Aborting before go-live; check the node in the Hypernode control panel.'
+                );
             }
         });
         after('deploy:setup', 'hypernode:settings:sync');
@@ -731,6 +742,30 @@ final class Bootstrap
         } catch (RunException $e) {
             warning("bin/magento {$magentoCommand} failed on the previous release (exit {$e->getExitCode()}); continuing");
         }
+    }
+
+    /**
+     * Live value of a hypernode-systemctl setting, or null when it cannot be read.
+     *
+     * 2>&1 because hypernode-systemctl reports the value on stderr, which run() does not
+     * return. Without it every setting looked like drift, so each deploy re-applied --block
+     * (minutes of update_node) and needlessly maintenance-wrapped, and the PHP version the
+     * previous release runs on could not be determined.
+     */
+    private static function readHypernodeSetting(string $name): ?string
+    {
+        try {
+            $output = run("hypernode-systemctl settings {$name} 2>&1");
+        } catch (\Throwable $e) {
+            warning("hypernode:settings:sync: could not read {$name} ({$e->getMessage()})");
+            return null;
+        }
+
+        if (preg_match('/is set to value\s+(\S+)/i', $output, $m)) {
+            return $m[1];
+        }
+
+        return null;
     }
 
     /**
