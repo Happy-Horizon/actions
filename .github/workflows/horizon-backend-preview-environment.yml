@@ -60,8 +60,6 @@ on:
     secrets:
       SSH_PRIVATE_KEY:
         required: false
-      DEPLOY_COMPOSER_AUTH:
-        required: false
       COMPOSER_PROCESS_TIMEOUT:
         required: false
       MAINTENANCE_IP_WHITELIST:
